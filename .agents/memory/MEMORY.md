@@ -1,0 +1,1 @@
+- [Delivery tracking scope](delivery-tracking.md) — until a live carrier integration exists, TTN and delivery status are manual; never imply automatic tracking.

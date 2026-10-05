@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "BUDBOX CRM"
+description = "Робоча CRM для B2B-продажів будівельних матеріалів: компанії та контакти, замовлення з воронкою продажів, нагадування менеджерам і історія взаємодій в єдиній картці клієнта."
+version = "1.0.0"
+id = "artifacts/budbox-crm"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19632
+
+[services.development]
+run = "pnpm --filter @workspace/budbox-crm run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/budbox-crm", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/budbox-crm/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19632"
+BASE_PATH = "/"

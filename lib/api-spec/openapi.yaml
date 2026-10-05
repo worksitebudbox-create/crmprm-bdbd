@@ -3,11 +3,13 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: BUDBOX CRM API
 servers:
   - url: /api
     description: Base API path
 tags:
+  - name: crm
+    description: CRM dashboard and client records
   - name: health
     description: Health operations
 paths:
@@ -24,6 +26,252 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /crm/summary:
+    get:
+      operationId: getCrmSummary
+      tags: [crm]
+      summary: Get CRM summary metrics
+      responses:
+        "200":
+          description: CRM overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CrmSummary"
+  /companies:
+    get:
+      operationId: getCompanies
+      tags: [crm]
+      summary: List and search companies
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: filter
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [all, mine, hasTasks, overdue]
+      responses:
+        "200":
+          description: Company list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CompanyListItem"
+    post:
+      operationId: createCompany
+      tags: [crm]
+      summary: Create a company
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompanyInput"
+      responses:
+        "201":
+          description: Company created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyDetail"
+  /companies/{companyId}:
+    parameters:
+      - name: companyId
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      operationId: getCompany
+      tags: [crm]
+      summary: Get a company profile
+      responses:
+        "200":
+          description: Company profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyDetail"
+        "404":
+          description: Company not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    patch:
+      operationId: updateCompany
+      tags: [crm]
+      summary: Update company details
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompanyUpdate"
+      responses:
+        "200":
+          description: Company updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyDetail"
+        "404":
+          description: Company not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /companies/{companyId}/contacts:
+    parameters:
+      - name: companyId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: createContact
+      tags: [crm]
+      summary: Add a contact to a company
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContactInput"
+      responses:
+        "201":
+          description: Contact created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contact"
+  /companies/{companyId}/orders:
+    parameters:
+      - name: companyId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: createOrder
+      tags: [crm]
+      summary: Create an order for a company
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderInput"
+      responses:
+        "201":
+          description: Order created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+  /orders/{orderId}:
+    parameters:
+      - name: orderId
+        in: path
+        required: true
+        schema:
+          type: integer
+    patch:
+      operationId: updateOrder
+      tags: [crm]
+      summary: Update order status or delivery details
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderUpdate"
+      responses:
+        "200":
+          description: Order updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+  /companies/{companyId}/tasks:
+    parameters:
+      - name: companyId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: createTask
+      tags: [crm]
+      summary: Add a follow-up task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskInput"
+      responses:
+        "201":
+          description: Task created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+  /tasks/{taskId}:
+    parameters:
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: integer
+    patch:
+      operationId: updateTask
+      tags: [crm]
+      summary: Update or complete a follow-up task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskUpdate"
+      responses:
+        "200":
+          description: Task updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+  /companies/{companyId}/notes:
+    parameters:
+      - name: companyId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: createNote
+      tags: [crm]
+      summary: Add a note to the company activity history
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NoteInput"
+      responses:
+        "201":
+          description: Note added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Activity"
 components:
   schemas:
     HealthStatus:
@@ -31,6 +279,223 @@ components:
       properties:
         status:
           type: string
+      required: [status]
+    ApiError:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+    CustomerType:
+      type: string
+      enum: [Виконроб, Опт, Будмайданчик, Дропшипінг, Партнер]
+    DealStage:
+      type: string
+      enum:
+        - Новий лід
+        - Уточнення деталей
+        - Рахунок / передоплата
+        - Зібрано на складі
+        - Відправлено
+        - Успішно реалізовано
+    PaymentForm:
+      type: string
+      enum: [ФОП, ПДВ, готівка]
+    Company:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        taxId: { type: ["string", "null"] }
+        customerType: { $ref: "#/components/schemas/CustomerType" }
+        city: { type: ["string", "null"] }
+        manager: { type: string }
+        warehouse: { type: ["string", "null"] }
+        paymentForm: { $ref: "#/components/schemas/PaymentForm" }
+        creditLimitUah: { type: number }
+        paymentTermsDays: { type: integer }
+        discountPercent: { type: number }
+        priceTier: { type: ["string", "null"] }
+        source: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
       required:
-        - status
+        - id
+        - name
+        - taxId
+        - customerType
+        - city
+        - manager
+        - warehouse
+        - paymentForm
+        - creditLimitUah
+        - paymentTermsDays
+        - discountPercent
+        - priceTier
+        - source
+        - createdAt
+        - updatedAt
+    Order:
+      type: object
+      properties:
+        id: { type: integer }
+        companyId: { type: integer }
+        code: { type: string }
+        stage: { $ref: "#/components/schemas/DealStage" }
+        amountUah: { type: number }
+        ttn: { type: ["string", "null"] }
+        deliveryStatus: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+      required: [id, companyId, code, stage, amountUah, ttn, deliveryStatus, createdAt, updatedAt]
+    Task:
+      type: object
+      properties:
+        id: { type: integer }
+        companyId: { type: integer }
+        title: { type: string }
+        dueAt: { type: ["string", "null"], format: date-time }
+        assignee: { type: string }
+        isCompleted: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        completedAt: { type: ["string", "null"], format: date-time }
+      required: [id, companyId, title, dueAt, assignee, isCompleted, createdAt, completedAt]
+    Contact:
+      type: object
+      properties:
+        id: { type: integer }
+        companyId: { type: integer }
+        fullName: { type: string }
+        role: { type: ["string", "null"] }
+        phone: { type: ["string", "null"] }
+        email: { type: ["string", "null"] }
+        telegram: { type: ["string", "null"] }
+        viber: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+      required: [id, companyId, fullName, role, phone, email, telegram, viber, createdAt]
+    Activity:
+      type: object
+      properties:
+        id: { type: integer }
+        companyId: { type: integer }
+        kind: { type: string, enum: [note, task, order, contact, status] }
+        title: { type: string }
+        details: { type: ["string", "null"] }
+        createdBy: { type: string }
+        createdAt: { type: string, format: date-time }
+      required: [id, companyId, kind, title, details, createdBy, createdAt]
+    CompanyListItem:
+      allOf:
+        - $ref: "#/components/schemas/Company"
+        - type: object
+          properties:
+            activeOrder: { oneOf: [{ $ref: "#/components/schemas/Order" }, { type: "null" }] }
+            nextTask: { oneOf: [{ $ref: "#/components/schemas/Task" }, { type: "null" }] }
+            overdue: { type: boolean }
+            contactsCount: { type: integer }
+          required: [activeOrder, nextTask, overdue, contactsCount]
+    CompanyDetail:
+      allOf:
+        - $ref: "#/components/schemas/Company"
+        - type: object
+          properties:
+            contacts:
+              type: array
+              items: { $ref: "#/components/schemas/Contact" }
+            orders:
+              type: array
+              items: { $ref: "#/components/schemas/Order" }
+            tasks:
+              type: array
+              items: { $ref: "#/components/schemas/Task" }
+            activity:
+              type: array
+              items: { $ref: "#/components/schemas/Activity" }
+          required: [contacts, orders, tasks, activity]
+    CrmSummary:
+      type: object
+      properties:
+        totalCompanies: { type: integer }
+        activeOrders: { type: integer }
+        pipelineValueUah: { type: number }
+        overdueTasks: { type: integer }
+      required: [totalCompanies, activeOrders, pipelineValueUah, overdueTasks]
+    CompanyInput:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        taxId: { type: ["string", "null"] }
+        customerType: { $ref: "#/components/schemas/CustomerType" }
+        city: { type: ["string", "null"] }
+        manager: { type: string }
+        warehouse: { type: ["string", "null"] }
+        paymentForm: { $ref: "#/components/schemas/PaymentForm" }
+        creditLimitUah: { type: number, minimum: 0 }
+        paymentTermsDays: { type: integer, minimum: 0 }
+        discountPercent: { type: number, minimum: 0, maximum: 100 }
+        priceTier: { type: ["string", "null"] }
+        source: { type: ["string", "null"] }
+      required: [name, customerType, manager]
+    CompanyUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        taxId: { type: ["string", "null"] }
+        customerType: { $ref: "#/components/schemas/CustomerType" }
+        city: { type: ["string", "null"] }
+        manager: { type: string }
+        warehouse: { type: ["string", "null"] }
+        paymentForm: { $ref: "#/components/schemas/PaymentForm" }
+        creditLimitUah: { type: number, minimum: 0 }
+        paymentTermsDays: { type: integer, minimum: 0 }
+        discountPercent: { type: number, minimum: 0, maximum: 100 }
+        priceTier: { type: ["string", "null"] }
+        source: { type: ["string", "null"] }
+    ContactInput:
+      type: object
+      properties:
+        fullName: { type: string, minLength: 1 }
+        role: { type: ["string", "null"] }
+        phone: { type: ["string", "null"] }
+        email: { type: ["string", "null"] }
+        telegram: { type: ["string", "null"] }
+        viber: { type: ["string", "null"] }
+      required: [fullName]
+    OrderInput:
+      type: object
+      properties:
+        code: { type: ["string", "null"] }
+        stage: { $ref: "#/components/schemas/DealStage" }
+        amountUah: { type: number, minimum: 0 }
+        ttn: { type: ["string", "null"] }
+        deliveryStatus: { type: ["string", "null"] }
+      required: [stage, amountUah]
+    OrderUpdate:
+      type: object
+      properties:
+        stage: { $ref: "#/components/schemas/DealStage" }
+        amountUah: { type: number, minimum: 0 }
+        ttn: { type: ["string", "null"] }
+        deliveryStatus: { type: ["string", "null"] }
+    TaskInput:
+      type: object
+      properties:
+        title: { type: string, minLength: 1 }
+        dueAt: { type: ["string", "null"], format: date-time }
+        assignee: { type: string }
+      required: [title, assignee]
+    TaskUpdate:
+      type: object
+      properties:
+        title: { type: string, minLength: 1 }
+        dueAt: { type: ["string", "null"], format: date-time }
+        assignee: { type: string }
+        isCompleted: { type: boolean }
+    NoteInput:
+      type: object
+      properties:
+        title: { type: string, minLength: 1 }
+        details: { type: ["string", "null"] }
+        createdBy: { type: string }
+      required: [title, createdBy]
 
