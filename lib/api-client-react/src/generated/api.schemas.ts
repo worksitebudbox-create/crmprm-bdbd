@@ -95,22 +95,14 @@ export interface Task {
   completedAt: string | null;
 }
 
-export interface Contact {
-  id: number;
-  companyId: number;
-  fullName: string;
-  /** @nullable */
-  role: string | null;
-  /** @nullable */
-  phone: string | null;
-  /** @nullable */
-  email: string | null;
-  /** @nullable */
-  telegram: string | null;
-  /** @nullable */
-  viber: string | null;
-  createdAt: string;
-}
+export type TaskBoardItem = Task & {
+  companyName: string;
+  companyManager: string;
+};
+
+export type OrderBoardItem = Order & {
+  companyName: string;
+};
 
 export type ActivityKind = typeof ActivityKind[keyof typeof ActivityKind];
 
@@ -131,6 +123,27 @@ export interface Activity {
   /** @nullable */
   details: string | null;
   createdBy: string;
+  createdAt: string;
+}
+
+export type ActivityBoardItem = Activity & {
+  companyName: string;
+};
+
+export interface Contact {
+  id: number;
+  companyId: number;
+  fullName: string;
+  /** @nullable */
+  role: string | null;
+  /** @nullable */
+  phone: string | null;
+  /** @nullable */
+  email: string | null;
+  /** @nullable */
+  telegram: string | null;
+  /** @nullable */
+  viber: string | null;
   createdAt: string;
 }
 

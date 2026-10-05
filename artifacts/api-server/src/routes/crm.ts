@@ -19,7 +19,10 @@ import {
   GetCompaniesResponse,
   GetCompanyParams,
   GetCompanyResponse,
+  GetCrmActivityResponse,
+  GetCrmOrdersResponse,
   GetCrmSummaryResponse,
+  GetCrmTasksResponse,
   UpdateCompanyBody,
   UpdateCompanyParams,
   UpdateCompanyResponse,
@@ -140,6 +143,59 @@ router.get("/crm/summary", async (req, res): Promise<void> => {
   });
   req.log.debug("CRM summary loaded");
   res.json(response);
+});
+
+router.get("/crm/tasks", async (req, res): Promise<void> => {
+  const rows = await db
+    .select({
+      task: tasksTable,
+      companyName: companiesTable.name,
+      companyManager: companiesTable.manager,
+    })
+    .from(tasksTable)
+    .innerJoin(companiesTable, eq(tasksTable.companyId, companiesTable.id))
+    .orderBy(desc(tasksTable.createdAt));
+
+  const response = rows.map(({ task, companyName, companyManager }) => ({
+    ...toTask(task),
+    companyName,
+    companyManager,
+  }));
+  res.json(GetCrmTasksResponse.parse(response));
+});
+
+router.get("/crm/orders", async (req, res): Promise<void> => {
+  const rows = await db
+    .select({
+      order: ordersTable,
+      companyName: companiesTable.name,
+    })
+    .from(ordersTable)
+    .innerJoin(companiesTable, eq(ordersTable.companyId, companiesTable.id))
+    .orderBy(desc(ordersTable.createdAt));
+
+  const response = rows.map(({ order, companyName }) => ({
+    ...toOrder(order),
+    companyName,
+  }));
+  res.json(GetCrmOrdersResponse.parse(response));
+});
+
+router.get("/crm/activity", async (req, res): Promise<void> => {
+  const rows = await db
+    .select({
+      activity: activitiesTable,
+      companyName: companiesTable.name,
+    })
+    .from(activitiesTable)
+    .innerJoin(companiesTable, eq(activitiesTable.companyId, companiesTable.id))
+    .orderBy(desc(activitiesTable.createdAt));
+
+  const response = rows.map(({ activity, companyName }) => ({
+    ...toActivity(activity),
+    companyName,
+  }));
+  res.json(GetCrmActivityResponse.parse(response));
 });
 
 router.get("/companies", async (req, res): Promise<void> => {

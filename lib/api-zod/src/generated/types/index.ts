@@ -7,6 +7,7 @@
  */
 
 export * from './activity';
+export * from './activityBoardItem';
 export * from './activityKind';
 export * from './apiError';
 export * from './company';
@@ -24,9 +25,11 @@ export * from './getCompaniesParams';
 export * from './healthStatus';
 export * from './noteInput';
 export * from './order';
+export * from './orderBoardItem';
 export * from './orderInput';
 export * from './orderUpdate';
 export * from './paymentForm';
 export * from './task';
+export * from './taskBoardItem';
 export * from './taskInput';
 export * from './taskUpdate';

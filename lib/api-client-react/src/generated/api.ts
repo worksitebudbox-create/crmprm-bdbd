@@ -21,6 +21,7 @@ import type {
 
 import type {
   Activity,
+  ActivityBoardItem,
   ApiError,
   CompanyDetail,
   CompanyInput,
@@ -33,9 +34,11 @@ import type {
   HealthStatus,
   NoteInput,
   Order,
+  OrderBoardItem,
   OrderInput,
   OrderUpdate,
   Task,
+  TaskBoardItem,
   TaskInput,
   TaskUpdate
 } from './api.schemas';
@@ -210,6 +213,237 @@ export function useGetCrmSummary<TData = Awaited<ReturnType<typeof getCrmSummary
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetCrmSummaryQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetCrmTasksUrl = () => {
+
+
+
+
+  return `/api/crm/tasks`
+}
+
+/**
+ * @summary List tasks across all companies
+ */
+export const getCrmTasks = async ( options?: Parameters<typeof customFetch>[1]): Promise<TaskBoardItem[]> => {
+
+  return customFetch<TaskBoardItem[]>(getGetCrmTasksUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCrmTasksQueryKey = () => {
+    return [
+    `/api/crm/tasks`
+    ] as const;
+    }
+
+
+export const getGetCrmTasksQueryOptions = <TData = Awaited<ReturnType<typeof getCrmTasks>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCrmTasks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCrmTasksQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCrmTasks>>> = ({ signal }) => getCrmTasks({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCrmTasks>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetCrmTasksQueryResult = NonNullable<Awaited<ReturnType<typeof getCrmTasks>>>
+export type GetCrmTasksQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List tasks across all companies
+ */
+
+export function useGetCrmTasks<TData = Awaited<ReturnType<typeof getCrmTasks>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCrmTasks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetCrmTasksQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetCrmOrdersUrl = () => {
+
+
+
+
+  return `/api/crm/orders`
+}
+
+/**
+ * @summary List orders across all companies
+ */
+export const getCrmOrders = async ( options?: Parameters<typeof customFetch>[1]): Promise<OrderBoardItem[]> => {
+
+  return customFetch<OrderBoardItem[]>(getGetCrmOrdersUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCrmOrdersQueryKey = () => {
+    return [
+    `/api/crm/orders`
+    ] as const;
+    }
+
+
+export const getGetCrmOrdersQueryOptions = <TData = Awaited<ReturnType<typeof getCrmOrders>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCrmOrders>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCrmOrdersQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCrmOrders>>> = ({ signal }) => getCrmOrders({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCrmOrders>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetCrmOrdersQueryResult = NonNullable<Awaited<ReturnType<typeof getCrmOrders>>>
+export type GetCrmOrdersQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List orders across all companies
+ */
+
+export function useGetCrmOrders<TData = Awaited<ReturnType<typeof getCrmOrders>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCrmOrders>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetCrmOrdersQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetCrmActivityUrl = () => {
+
+
+
+
+  return `/api/crm/activity`
+}
+
+/**
+ * @summary List activity across all companies
+ */
+export const getCrmActivity = async ( options?: Parameters<typeof customFetch>[1]): Promise<ActivityBoardItem[]> => {
+
+  return customFetch<ActivityBoardItem[]>(getGetCrmActivityUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCrmActivityQueryKey = () => {
+    return [
+    `/api/crm/activity`
+    ] as const;
+    }
+
+
+export const getGetCrmActivityQueryOptions = <TData = Awaited<ReturnType<typeof getCrmActivity>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCrmActivity>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCrmActivityQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCrmActivity>>> = ({ signal }) => getCrmActivity({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCrmActivity>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetCrmActivityQueryResult = NonNullable<Awaited<ReturnType<typeof getCrmActivity>>>
+export type GetCrmActivityQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List activity across all companies
+ */
+
+export function useGetCrmActivity<TData = Awaited<ReturnType<typeof getCrmActivity>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCrmActivity>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetCrmActivityQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

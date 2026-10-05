@@ -38,6 +38,48 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CrmSummary"
+  /crm/tasks:
+    get:
+      operationId: getCrmTasks
+      tags: [crm]
+      summary: List tasks across all companies
+      responses:
+        "200":
+          description: CRM tasks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TaskBoardItem"
+  /crm/orders:
+    get:
+      operationId: getCrmOrders
+      tags: [crm]
+      summary: List orders across all companies
+      responses:
+        "200":
+          description: CRM orders
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OrderBoardItem"
+  /crm/activity:
+    get:
+      operationId: getCrmActivity
+      tags: [crm]
+      summary: List activity across all companies
+      responses:
+        "200":
+          description: CRM activity
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityBoardItem"
   /companies:
     get:
       operationId: getCompanies
@@ -360,6 +402,28 @@ components:
         createdAt: { type: string, format: date-time }
         completedAt: { type: ["string", "null"], format: date-time }
       required: [id, companyId, title, dueAt, assignee, isCompleted, createdAt, completedAt]
+    TaskBoardItem:
+      allOf:
+        - $ref: "#/components/schemas/Task"
+        - type: object
+          properties:
+            companyName: { type: string }
+            companyManager: { type: string }
+          required: [companyName, companyManager]
+    OrderBoardItem:
+      allOf:
+        - $ref: "#/components/schemas/Order"
+        - type: object
+          properties:
+            companyName: { type: string }
+          required: [companyName]
+    ActivityBoardItem:
+      allOf:
+        - $ref: "#/components/schemas/Activity"
+        - type: object
+          properties:
+            companyName: { type: string }
+          required: [companyName]
     Contact:
       type: object
       properties:

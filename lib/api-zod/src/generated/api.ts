@@ -29,6 +29,61 @@ export const GetCrmSummaryResponse = zod.object({
 
 
 /**
+ * @summary List tasks across all companies
+ */
+export const GetCrmTasksResponseItem = zod.object({
+  "id": zod.number().int(),
+  "companyId": zod.number().int(),
+  "title": zod.string(),
+  "dueAt": zod.coerce.date().nullable(),
+  "assignee": zod.string(),
+  "isCompleted": zod.boolean(),
+  "createdAt": zod.coerce.date(),
+  "completedAt": zod.coerce.date().nullable()
+}).and(zod.object({
+  "companyName": zod.string(),
+  "companyManager": zod.string()
+}))
+export const GetCrmTasksResponse = zod.array(GetCrmTasksResponseItem)
+
+
+/**
+ * @summary List orders across all companies
+ */
+export const GetCrmOrdersResponseItem = zod.object({
+  "id": zod.number().int(),
+  "companyId": zod.number().int(),
+  "code": zod.string(),
+  "stage": zod.enum(['Новий лід', 'Уточнення деталей', 'Рахунок / передоплата', 'Зібрано на складі', 'Відправлено', 'Успішно реалізовано']),
+  "amountUah": zod.number(),
+  "ttn": zod.string().nullable(),
+  "deliveryStatus": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+}).and(zod.object({
+  "companyName": zod.string()
+}))
+export const GetCrmOrdersResponse = zod.array(GetCrmOrdersResponseItem)
+
+
+/**
+ * @summary List activity across all companies
+ */
+export const GetCrmActivityResponseItem = zod.object({
+  "id": zod.number().int(),
+  "companyId": zod.number().int(),
+  "kind": zod.enum(['note', 'task', 'order', 'contact', 'status']),
+  "title": zod.string(),
+  "details": zod.string().nullable(),
+  "createdBy": zod.string(),
+  "createdAt": zod.coerce.date()
+}).and(zod.object({
+  "companyName": zod.string()
+}))
+export const GetCrmActivityResponse = zod.array(GetCrmActivityResponseItem)
+
+
+/**
  * @summary List and search companies
  */
 export const GetCompaniesQueryParams = zod.object({
