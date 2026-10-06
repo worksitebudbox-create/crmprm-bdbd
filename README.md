@@ -39,3 +39,4 @@ pnpm --dir artifacts/api-server build
 The frontend and API must use the same Supabase project. The API verifies
 Supabase bearer tokens and uses the signed-in user's email for manager
 attribution.
+"# crmprm-bdbd" 
