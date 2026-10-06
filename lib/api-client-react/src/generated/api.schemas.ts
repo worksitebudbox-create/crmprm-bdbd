@@ -17,6 +17,7 @@ export type CustomerType = typeof CustomerType[keyof typeof CustomerType];
 
 
 export const CustomerType = {
+  Роздрібний_клієнт: 'Роздрібний клієнт',
   Виконроб: 'Виконроб',
   Опт: 'Опт',
   Будмайданчик: 'Будмайданчик',
@@ -70,14 +71,44 @@ export interface Company {
 
 export interface Order {
   id: number;
-  companyId: number;
+  /** @nullable */
+  companyId: number | null;
   code: string;
   stage: DealStage;
   amountUah: number;
   /** @nullable */
   ttn: string | null;
   /** @nullable */
+  invoiceNumber: string | null;
+  /** @nullable */
+  comment: string | null;
+  /** @nullable */
   deliveryStatus: string | null;
+  /** @nullable */
+  sender: string | null;
+  /** @nullable */
+  warehouse: string | null;
+  /** @nullable */
+  customerName: string | null;
+  /** @nullable */
+  phone: string | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  itemCount: number | null;
+  /** @nullable */
+  paymentMethod: string | null;
+  /** @nullable */
+  paymentStatus: string | null;
+  /** @nullable */
+  paidAt: string | null;
+  /** @nullable */
+  marketingSource?: string | null;
+  /** @nullable */
+  orderDate: string | null;
+  /** @nullable */
+  arrivalDate: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -246,7 +277,32 @@ export interface OrderInput {
   /** @nullable */
   ttn?: string | null;
   /** @nullable */
-  deliveryStatus?: string | null;
+  invoiceNumber?: string | null;
+  /** @nullable */
+  comment?: string | null;
+  /** @nullable */
+  sender?: string | null;
+  /** @nullable */
+  warehouse?: string | null;
+  /** @nullable */
+  customerName?: string | null;
+  /** @nullable */
+  phone?: string | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  itemCount?: number | null;
+  /** @nullable */
+  paymentMethod?: string | null;
+  /** @nullable */
+  paymentStatus?: string | null;
+  /** @nullable */
+  marketingSource?: string | null;
+  /** @nullable */
+  orderDate?: string | null;
+  /** @nullable */
+  arrivalDate?: string | null;
 }
 
 export interface OrderUpdate {
@@ -256,7 +312,32 @@ export interface OrderUpdate {
   /** @nullable */
   ttn?: string | null;
   /** @nullable */
-  deliveryStatus?: string | null;
+  invoiceNumber?: string | null;
+  /** @nullable */
+  comment?: string | null;
+  /** @nullable */
+  sender?: string | null;
+  /** @nullable */
+  warehouse?: string | null;
+  /** @nullable */
+  customerName?: string | null;
+  /** @nullable */
+  phone?: string | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  itemCount?: number | null;
+  /** @nullable */
+  paymentMethod?: string | null;
+  /** @nullable */
+  paymentStatus?: string | null;
+  /** @nullable */
+  marketingSource?: string | null;
+  /** @nullable */
+  orderDate?: string | null;
+  /** @nullable */
+  arrivalDate?: string | null;
 }
 
 export interface TaskInput {

@@ -9,14 +9,44 @@ import type { DealStage } from './dealStage';
 
 export interface Order {
   id: number;
-  companyId: number;
+  /** @nullable */
+  companyId: number | null;
   code: string;
   stage: DealStage;
   amountUah: number;
   /** @nullable */
   ttn: string | null;
   /** @nullable */
+  invoiceNumber: string | null;
+  /** @nullable */
+  comment: string | null;
+  /** @nullable */
   deliveryStatus: string | null;
+  /** @nullable */
+  sender: string | null;
+  /** @nullable */
+  warehouse: string | null;
+  /** @nullable */
+  customerName: string | null;
+  /** @nullable */
+  phone: string | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  itemCount: number | null;
+  /** @nullable */
+  paymentMethod: string | null;
+  /** @nullable */
+  paymentStatus: string | null;
+  /** @nullable */
+  paidAt: Date | null;
+  /** @nullable */
+  marketingSource?: string | null;
+  /** @nullable */
+  orderDate: Date | null;
+  /** @nullable */
+  arrivalDate: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }

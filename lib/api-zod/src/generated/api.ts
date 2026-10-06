@@ -48,16 +48,91 @@ export const GetCrmTasksResponse = zod.array(GetCrmTasksResponseItem)
 
 
 /**
- * @summary List orders across all companies
+ * @summary Create an order without requiring a company record
  */
-export const GetCrmOrdersResponseItem = zod.object({
+export const createStandaloneOrderBodyAmountUahMin = 0;
+
+export const createStandaloneOrderBodyItemCountMin = 0;
+
+
+
+export const CreateStandaloneOrderBody = zod.object({
+  "code": zod.string().nullish(),
+  "stage": zod.enum(['Новий лід', 'Уточнення деталей', 'Рахунок / передоплата', 'Зібрано на складі', 'Відправлено', 'Успішно реалізовано']),
+  "amountUah": zod.number().min(createStandaloneOrderBodyAmountUahMin),
+  "ttn": zod.string().nullish(),
+  "invoiceNumber": zod.string().nullish(),
+  "comment": zod.string().nullish(),
+  "sender": zod.string().nullish(),
+  "warehouse": zod.string().nullish(),
+  "customerName": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "itemCount": zod.number().int().min(createStandaloneOrderBodyItemCountMin).nullish(),
+  "paymentMethod": zod.string().nullish(),
+  "paymentStatus": zod.string().nullish(),
+  "marketingSource": zod.string().nullish(),
+  "orderDate": zod.coerce.date().nullish(),
+  "arrivalDate": zod.coerce.date().nullish()
+})
+
+export const createStandaloneOrderResponseItemCountMin = 0;
+
+
+
+export const CreateStandaloneOrderResponse = zod.object({
   "id": zod.number().int(),
-  "companyId": zod.number().int(),
+  "companyId": zod.number().int().nullable(),
   "code": zod.string(),
   "stage": zod.enum(['Новий лід', 'Уточнення деталей', 'Рахунок / передоплата', 'Зібрано на складі', 'Відправлено', 'Успішно реалізовано']),
   "amountUah": zod.number(),
   "ttn": zod.string().nullable(),
+  "invoiceNumber": zod.string().nullable(),
+  "comment": zod.string().nullable(),
   "deliveryStatus": zod.string().nullable(),
+  "sender": zod.string().nullable(),
+  "warehouse": zod.string().nullable(),
+  "customerName": zod.string().nullable(),
+  "phone": zod.string().nullable(),
+  "itemCount": zod.number().int().min(createStandaloneOrderResponseItemCountMin).nullable(),
+  "paymentMethod": zod.string().nullable(),
+  "paymentStatus": zod.string().nullable(),
+  "paidAt": zod.coerce.date().nullable(),
+  "marketingSource": zod.string().nullish(),
+  "orderDate": zod.coerce.date().nullable(),
+  "arrivalDate": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary List orders across all companies
+ */
+export const getCrmOrdersResponseOneItemCountMin = 0;
+
+
+
+export const GetCrmOrdersResponseItem = zod.object({
+  "id": zod.number().int(),
+  "companyId": zod.number().int().nullable(),
+  "code": zod.string(),
+  "stage": zod.enum(['Новий лід', 'Уточнення деталей', 'Рахунок / передоплата', 'Зібрано на складі', 'Відправлено', 'Успішно реалізовано']),
+  "amountUah": zod.number(),
+  "ttn": zod.string().nullable(),
+  "invoiceNumber": zod.string().nullable(),
+  "comment": zod.string().nullable(),
+  "deliveryStatus": zod.string().nullable(),
+  "sender": zod.string().nullable(),
+  "warehouse": zod.string().nullable(),
+  "customerName": zod.string().nullable(),
+  "phone": zod.string().nullable(),
+  "itemCount": zod.number().int().min(getCrmOrdersResponseOneItemCountMin).nullable(),
+  "paymentMethod": zod.string().nullable(),
+  "paymentStatus": zod.string().nullable(),
+  "paidAt": zod.coerce.date().nullable(),
+  "marketingSource": zod.string().nullish(),
+  "orderDate": zod.coerce.date().nullable(),
+  "arrivalDate": zod.coerce.date().nullable(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 }).and(zod.object({
@@ -91,11 +166,15 @@ export const GetCompaniesQueryParams = zod.object({
   "filter": zod.enum(['all', 'mine', 'hasTasks', 'overdue']).optional()
 })
 
+export const getCompaniesResponseTwoActiveOrderOneItemCountMin = 0;
+
+
+
 export const GetCompaniesResponseItem = zod.object({
   "id": zod.number().int(),
   "name": zod.string(),
   "taxId": zod.string().nullable(),
-  "customerType": zod.enum(['Виконроб', 'Опт', 'Будмайданчик', 'Дропшипінг', 'Партнер']),
+  "customerType": zod.enum(['Роздрібний клієнт', 'Виконроб', 'Опт', 'Будмайданчик', 'Дропшипінг', 'Партнер']),
   "city": zod.string().nullable(),
   "manager": zod.string(),
   "warehouse": zod.string().nullable(),
@@ -110,12 +189,25 @@ export const GetCompaniesResponseItem = zod.object({
 }).and(zod.object({
   "activeOrder": zod.union([zod.object({
   "id": zod.number().int(),
-  "companyId": zod.number().int(),
+  "companyId": zod.number().int().nullable(),
   "code": zod.string(),
   "stage": zod.enum(['Новий лід', 'Уточнення деталей', 'Рахунок / передоплата', 'Зібрано на складі', 'Відправлено', 'Успішно реалізовано']),
   "amountUah": zod.number(),
   "ttn": zod.string().nullable(),
+  "invoiceNumber": zod.string().nullable(),
+  "comment": zod.string().nullable(),
   "deliveryStatus": zod.string().nullable(),
+  "sender": zod.string().nullable(),
+  "warehouse": zod.string().nullable(),
+  "customerName": zod.string().nullable(),
+  "phone": zod.string().nullable(),
+  "itemCount": zod.number().int().min(getCompaniesResponseTwoActiveOrderOneItemCountMin).nullable(),
+  "paymentMethod": zod.string().nullable(),
+  "paymentStatus": zod.string().nullable(),
+  "paidAt": zod.coerce.date().nullable(),
+  "marketingSource": zod.string().nullish(),
+  "orderDate": zod.coerce.date().nullable(),
+  "arrivalDate": zod.coerce.date().nullable(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 }),zod.null()]),
@@ -151,7 +243,7 @@ export const createCompanyBodyDiscountPercentMax = 100;
 export const CreateCompanyBody = zod.object({
   "name": zod.string().min(1),
   "taxId": zod.string().nullish(),
-  "customerType": zod.enum(['Виконроб', 'Опт', 'Будмайданчик', 'Дропшипінг', 'Партнер']),
+  "customerType": zod.enum(['Роздрібний клієнт', 'Виконроб', 'Опт', 'Будмайданчик', 'Дропшипінг', 'Партнер']),
   "city": zod.string().nullish(),
   "manager": zod.string(),
   "warehouse": zod.string().nullish(),
@@ -163,11 +255,15 @@ export const CreateCompanyBody = zod.object({
   "source": zod.string().nullish()
 })
 
+export const createCompanyResponseTwoOrdersItemItemCountMin = 0;
+
+
+
 export const CreateCompanyResponse = zod.object({
   "id": zod.number().int(),
   "name": zod.string(),
   "taxId": zod.string().nullable(),
-  "customerType": zod.enum(['Виконроб', 'Опт', 'Будмайданчик', 'Дропшипінг', 'Партнер']),
+  "customerType": zod.enum(['Роздрібний клієнт', 'Виконроб', 'Опт', 'Будмайданчик', 'Дропшипінг', 'Партнер']),
   "city": zod.string().nullable(),
   "manager": zod.string(),
   "warehouse": zod.string().nullable(),
@@ -193,12 +289,25 @@ export const CreateCompanyResponse = zod.object({
 })),
   "orders": zod.array(zod.object({
   "id": zod.number().int(),
-  "companyId": zod.number().int(),
+  "companyId": zod.number().int().nullable(),
   "code": zod.string(),
   "stage": zod.enum(['Новий лід', 'Уточнення деталей', 'Рахунок / передоплата', 'Зібрано на складі', 'Відправлено', 'Успішно реалізовано']),
   "amountUah": zod.number(),
   "ttn": zod.string().nullable(),
+  "invoiceNumber": zod.string().nullable(),
+  "comment": zod.string().nullable(),
   "deliveryStatus": zod.string().nullable(),
+  "sender": zod.string().nullable(),
+  "warehouse": zod.string().nullable(),
+  "customerName": zod.string().nullable(),
+  "phone": zod.string().nullable(),
+  "itemCount": zod.number().int().min(createCompanyResponseTwoOrdersItemItemCountMin).nullable(),
+  "paymentMethod": zod.string().nullable(),
+  "paymentStatus": zod.string().nullable(),
+  "paidAt": zod.coerce.date().nullable(),
+  "marketingSource": zod.string().nullish(),
+  "orderDate": zod.coerce.date().nullable(),
+  "arrivalDate": zod.coerce.date().nullable(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })),
@@ -231,11 +340,15 @@ export const GetCompanyParams = zod.object({
   "companyId": zod.coerce.number().int()
 })
 
+export const getCompanyResponseTwoOrdersItemItemCountMin = 0;
+
+
+
 export const GetCompanyResponse = zod.object({
   "id": zod.number().int(),
   "name": zod.string(),
   "taxId": zod.string().nullable(),
-  "customerType": zod.enum(['Виконроб', 'Опт', 'Будмайданчик', 'Дропшипінг', 'Партнер']),
+  "customerType": zod.enum(['Роздрібний клієнт', 'Виконроб', 'Опт', 'Будмайданчик', 'Дропшипінг', 'Партнер']),
   "city": zod.string().nullable(),
   "manager": zod.string(),
   "warehouse": zod.string().nullable(),
@@ -261,12 +374,25 @@ export const GetCompanyResponse = zod.object({
 })),
   "orders": zod.array(zod.object({
   "id": zod.number().int(),
-  "companyId": zod.number().int(),
+  "companyId": zod.number().int().nullable(),
   "code": zod.string(),
   "stage": zod.enum(['Новий лід', 'Уточнення деталей', 'Рахунок / передоплата', 'Зібрано на складі', 'Відправлено', 'Успішно реалізовано']),
   "amountUah": zod.number(),
   "ttn": zod.string().nullable(),
+  "invoiceNumber": zod.string().nullable(),
+  "comment": zod.string().nullable(),
   "deliveryStatus": zod.string().nullable(),
+  "sender": zod.string().nullable(),
+  "warehouse": zod.string().nullable(),
+  "customerName": zod.string().nullable(),
+  "phone": zod.string().nullable(),
+  "itemCount": zod.number().int().min(getCompanyResponseTwoOrdersItemItemCountMin).nullable(),
+  "paymentMethod": zod.string().nullable(),
+  "paymentStatus": zod.string().nullable(),
+  "paidAt": zod.coerce.date().nullable(),
+  "marketingSource": zod.string().nullish(),
+  "orderDate": zod.coerce.date().nullable(),
+  "arrivalDate": zod.coerce.date().nullable(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })),
@@ -312,7 +438,7 @@ export const updateCompanyBodyDiscountPercentMax = 100;
 export const UpdateCompanyBody = zod.object({
   "name": zod.string().min(1).optional(),
   "taxId": zod.string().nullish(),
-  "customerType": zod.enum(['Виконроб', 'Опт', 'Будмайданчик', 'Дропшипінг', 'Партнер']).optional(),
+  "customerType": zod.enum(['Роздрібний клієнт', 'Виконроб', 'Опт', 'Будмайданчик', 'Дропшипінг', 'Партнер']).optional(),
   "city": zod.string().nullish(),
   "manager": zod.string().optional(),
   "warehouse": zod.string().nullish(),
@@ -324,11 +450,15 @@ export const UpdateCompanyBody = zod.object({
   "source": zod.string().nullish()
 })
 
+export const updateCompanyResponseTwoOrdersItemItemCountMin = 0;
+
+
+
 export const UpdateCompanyResponse = zod.object({
   "id": zod.number().int(),
   "name": zod.string(),
   "taxId": zod.string().nullable(),
-  "customerType": zod.enum(['Виконроб', 'Опт', 'Будмайданчик', 'Дропшипінг', 'Партнер']),
+  "customerType": zod.enum(['Роздрібний клієнт', 'Виконроб', 'Опт', 'Будмайданчик', 'Дропшипінг', 'Партнер']),
   "city": zod.string().nullable(),
   "manager": zod.string(),
   "warehouse": zod.string().nullable(),
@@ -354,12 +484,25 @@ export const UpdateCompanyResponse = zod.object({
 })),
   "orders": zod.array(zod.object({
   "id": zod.number().int(),
-  "companyId": zod.number().int(),
+  "companyId": zod.number().int().nullable(),
   "code": zod.string(),
   "stage": zod.enum(['Новий лід', 'Уточнення деталей', 'Рахунок / передоплата', 'Зібрано на складі', 'Відправлено', 'Успішно реалізовано']),
   "amountUah": zod.number(),
   "ttn": zod.string().nullable(),
+  "invoiceNumber": zod.string().nullable(),
+  "comment": zod.string().nullable(),
   "deliveryStatus": zod.string().nullable(),
+  "sender": zod.string().nullable(),
+  "warehouse": zod.string().nullable(),
+  "customerName": zod.string().nullable(),
+  "phone": zod.string().nullable(),
+  "itemCount": zod.number().int().min(updateCompanyResponseTwoOrdersItemItemCountMin).nullable(),
+  "paymentMethod": zod.string().nullable(),
+  "paymentStatus": zod.string().nullable(),
+  "paidAt": zod.coerce.date().nullable(),
+  "marketingSource": zod.string().nullish(),
+  "orderDate": zod.coerce.date().nullable(),
+  "arrivalDate": zod.coerce.date().nullable(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })),
@@ -426,6 +569,8 @@ export const CreateOrderParams = zod.object({
 
 export const createOrderBodyAmountUahMin = 0;
 
+export const createOrderBodyItemCountMin = 0;
+
 
 
 export const CreateOrderBody = zod.object({
@@ -433,17 +578,45 @@ export const CreateOrderBody = zod.object({
   "stage": zod.enum(['Новий лід', 'Уточнення деталей', 'Рахунок / передоплата', 'Зібрано на складі', 'Відправлено', 'Успішно реалізовано']),
   "amountUah": zod.number().min(createOrderBodyAmountUahMin),
   "ttn": zod.string().nullish(),
-  "deliveryStatus": zod.string().nullish()
+  "invoiceNumber": zod.string().nullish(),
+  "comment": zod.string().nullish(),
+  "sender": zod.string().nullish(),
+  "warehouse": zod.string().nullish(),
+  "customerName": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "itemCount": zod.number().int().min(createOrderBodyItemCountMin).nullish(),
+  "paymentMethod": zod.string().nullish(),
+  "paymentStatus": zod.string().nullish(),
+  "marketingSource": zod.string().nullish(),
+  "orderDate": zod.coerce.date().nullish(),
+  "arrivalDate": zod.coerce.date().nullish()
 })
+
+export const createOrderResponseItemCountMin = 0;
+
+
 
 export const CreateOrderResponse = zod.object({
   "id": zod.number().int(),
-  "companyId": zod.number().int(),
+  "companyId": zod.number().int().nullable(),
   "code": zod.string(),
   "stage": zod.enum(['Новий лід', 'Уточнення деталей', 'Рахунок / передоплата', 'Зібрано на складі', 'Відправлено', 'Успішно реалізовано']),
   "amountUah": zod.number(),
   "ttn": zod.string().nullable(),
+  "invoiceNumber": zod.string().nullable(),
+  "comment": zod.string().nullable(),
   "deliveryStatus": zod.string().nullable(),
+  "sender": zod.string().nullable(),
+  "warehouse": zod.string().nullable(),
+  "customerName": zod.string().nullable(),
+  "phone": zod.string().nullable(),
+  "itemCount": zod.number().int().min(createOrderResponseItemCountMin).nullable(),
+  "paymentMethod": zod.string().nullable(),
+  "paymentStatus": zod.string().nullable(),
+  "paidAt": zod.coerce.date().nullable(),
+  "marketingSource": zod.string().nullish(),
+  "orderDate": zod.coerce.date().nullable(),
+  "arrivalDate": zod.coerce.date().nullable(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -458,23 +631,100 @@ export const UpdateOrderParams = zod.object({
 
 export const updateOrderBodyAmountUahMin = 0;
 
+export const updateOrderBodyItemCountMin = 0;
+
 
 
 export const UpdateOrderBody = zod.object({
   "stage": zod.enum(['Новий лід', 'Уточнення деталей', 'Рахунок / передоплата', 'Зібрано на складі', 'Відправлено', 'Успішно реалізовано']).optional(),
   "amountUah": zod.number().min(updateOrderBodyAmountUahMin).optional(),
   "ttn": zod.string().nullish(),
-  "deliveryStatus": zod.string().nullish()
+  "invoiceNumber": zod.string().nullish(),
+  "comment": zod.string().nullish(),
+  "sender": zod.string().nullish(),
+  "warehouse": zod.string().nullish(),
+  "customerName": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "itemCount": zod.number().int().min(updateOrderBodyItemCountMin).nullish(),
+  "paymentMethod": zod.string().nullish(),
+  "paymentStatus": zod.string().nullish(),
+  "marketingSource": zod.string().nullish(),
+  "orderDate": zod.coerce.date().nullish(),
+  "arrivalDate": zod.coerce.date().nullish()
 })
+
+export const updateOrderResponseItemCountMin = 0;
+
+
 
 export const UpdateOrderResponse = zod.object({
   "id": zod.number().int(),
-  "companyId": zod.number().int(),
+  "companyId": zod.number().int().nullable(),
   "code": zod.string(),
   "stage": zod.enum(['Новий лід', 'Уточнення деталей', 'Рахунок / передоплата', 'Зібрано на складі', 'Відправлено', 'Успішно реалізовано']),
   "amountUah": zod.number(),
   "ttn": zod.string().nullable(),
+  "invoiceNumber": zod.string().nullable(),
+  "comment": zod.string().nullable(),
   "deliveryStatus": zod.string().nullable(),
+  "sender": zod.string().nullable(),
+  "warehouse": zod.string().nullable(),
+  "customerName": zod.string().nullable(),
+  "phone": zod.string().nullable(),
+  "itemCount": zod.number().int().min(updateOrderResponseItemCountMin).nullable(),
+  "paymentMethod": zod.string().nullable(),
+  "paymentStatus": zod.string().nullable(),
+  "paidAt": zod.coerce.date().nullable(),
+  "marketingSource": zod.string().nullish(),
+  "orderDate": zod.coerce.date().nullable(),
+  "arrivalDate": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Delete an order
+ */
+export const DeleteOrderParams = zod.object({
+  "orderId": zod.coerce.number().int()
+})
+
+export const DeleteOrderResponse = zod.void()
+
+
+/**
+ * @summary Refresh an order's delivery status from Nova Poshta
+ */
+export const RefreshNovaPoshtaOrderStatusParams = zod.object({
+  "orderId": zod.coerce.number().int()
+})
+
+export const refreshNovaPoshtaOrderStatusResponseItemCountMin = 0;
+
+
+
+export const RefreshNovaPoshtaOrderStatusResponse = zod.object({
+  "id": zod.number().int(),
+  "companyId": zod.number().int().nullable(),
+  "code": zod.string(),
+  "stage": zod.enum(['Новий лід', 'Уточнення деталей', 'Рахунок / передоплата', 'Зібрано на складі', 'Відправлено', 'Успішно реалізовано']),
+  "amountUah": zod.number(),
+  "ttn": zod.string().nullable(),
+  "invoiceNumber": zod.string().nullable(),
+  "comment": zod.string().nullable(),
+  "deliveryStatus": zod.string().nullable(),
+  "sender": zod.string().nullable(),
+  "warehouse": zod.string().nullable(),
+  "customerName": zod.string().nullable(),
+  "phone": zod.string().nullable(),
+  "itemCount": zod.number().int().min(refreshNovaPoshtaOrderStatusResponseItemCountMin).nullable(),
+  "paymentMethod": zod.string().nullable(),
+  "paymentStatus": zod.string().nullable(),
+  "paidAt": zod.coerce.date().nullable(),
+  "marketingSource": zod.string().nullish(),
+  "orderDate": zod.coerce.date().nullable(),
+  "arrivalDate": zod.coerce.date().nullable(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })

@@ -1,0 +1,12 @@
+[build]
+  command = "pnpm install --frozen-lockfile && pnpm --dir artifacts/budbox-crm build"
+  publish = "artifacts/budbox-crm/dist/public"
+
+[build.environment]
+  NODE_VERSION = "20"
+  NPM_FLAGS = "--no-fund --no-audit"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

@@ -53,6 +53,23 @@ paths:
                 items:
                   $ref: "#/components/schemas/TaskBoardItem"
   /crm/orders:
+    post:
+      operationId: createStandaloneOrder
+      tags: [crm]
+      summary: Create an order without requiring a company record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderInput"
+      responses:
+        "201":
+          description: Order created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
     get:
       operationId: getCrmOrders
       tags: [crm]
@@ -242,6 +259,49 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Order"
+    delete:
+      operationId: deleteOrder
+      tags: [crm]
+      summary: Delete an order
+      responses:
+        "204":
+          description: Order deleted
+        "404":
+          description: Order not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /crm/orders/{orderId}/nova-poshta-status:
+    parameters:
+      - name: orderId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: refreshNovaPoshtaOrderStatus
+      tags: [crm]
+      summary: Refresh an order's delivery status from Nova Poshta
+      responses:
+        "200":
+          description: Order updated with the carrier status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "502":
+          description: Nova Poshta returned an error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: Nova Poshta API key is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /companies/{companyId}/tasks:
     parameters:
       - name: companyId
@@ -330,7 +390,7 @@ components:
       required: [error]
     CustomerType:
       type: string
-      enum: [Виконроб, Опт, Будмайданчик, Дропшипінг, Партнер]
+      enum: [Роздрібний клієнт, Виконроб, Опт, Будмайданчик, Дропшипінг, Партнер]
     DealStage:
       type: string
       enum:
@@ -381,15 +441,28 @@ components:
       type: object
       properties:
         id: { type: integer }
-        companyId: { type: integer }
+        companyId: { type: ["integer", "null"] }
         code: { type: string }
         stage: { $ref: "#/components/schemas/DealStage" }
         amountUah: { type: number }
         ttn: { type: ["string", "null"] }
+        invoiceNumber: { type: ["string", "null"] }
+        comment: { type: ["string", "null"] }
         deliveryStatus: { type: ["string", "null"] }
+        sender: { type: ["string", "null"] }
+        warehouse: { type: ["string", "null"] }
+        customerName: { type: ["string", "null"] }
+        phone: { type: ["string", "null"] }
+        itemCount: { type: ["integer", "null"], minimum: 0 }
+        paymentMethod: { type: ["string", "null"] }
+        paymentStatus: { type: ["string", "null"] }
+        paidAt: { type: ["string", "null"], format: date-time }
+        marketingSource: { type: ["string", "null"] }
+        orderDate: { type: ["string", "null"], format: date }
+        arrivalDate: { type: ["string", "null"], format: date-time }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
-      required: [id, companyId, code, stage, amountUah, ttn, deliveryStatus, createdAt, updatedAt]
+      required: [id, companyId, code, stage, amountUah, ttn, invoiceNumber, comment, deliveryStatus, sender, warehouse, customerName, phone, itemCount, paymentMethod, paymentStatus, paidAt, orderDate, arrivalDate, createdAt, updatedAt]
     Task:
       type: object
       properties:
@@ -532,7 +605,18 @@ components:
         stage: { $ref: "#/components/schemas/DealStage" }
         amountUah: { type: number, minimum: 0 }
         ttn: { type: ["string", "null"] }
-        deliveryStatus: { type: ["string", "null"] }
+        invoiceNumber: { type: ["string", "null"] }
+        comment: { type: ["string", "null"] }
+        sender: { type: ["string", "null"] }
+        warehouse: { type: ["string", "null"] }
+        customerName: { type: ["string", "null"] }
+        phone: { type: ["string", "null"] }
+        itemCount: { type: ["integer", "null"], minimum: 0 }
+        paymentMethod: { type: ["string", "null"] }
+        paymentStatus: { type: ["string", "null"] }
+        marketingSource: { type: ["string", "null"] }
+        orderDate: { type: ["string", "null"], format: date }
+        arrivalDate: { type: ["string", "null"], format: date-time }
       required: [stage, amountUah]
     OrderUpdate:
       type: object
@@ -540,7 +624,18 @@ components:
         stage: { $ref: "#/components/schemas/DealStage" }
         amountUah: { type: number, minimum: 0 }
         ttn: { type: ["string", "null"] }
-        deliveryStatus: { type: ["string", "null"] }
+        invoiceNumber: { type: ["string", "null"] }
+        comment: { type: ["string", "null"] }
+        sender: { type: ["string", "null"] }
+        warehouse: { type: ["string", "null"] }
+        customerName: { type: ["string", "null"] }
+        phone: { type: ["string", "null"] }
+        itemCount: { type: ["integer", "null"], minimum: 0 }
+        paymentMethod: { type: ["string", "null"] }
+        paymentStatus: { type: ["string", "null"] }
+        marketingSource: { type: ["string", "null"] }
+        orderDate: { type: ["string", "null"], format: date }
+        arrivalDate: { type: ["string", "null"], format: date-time }
     TaskInput:
       type: object
       properties:
@@ -562,4 +657,3 @@ components:
         details: { type: ["string", "null"] }
         createdBy: { type: string }
       required: [title, createdBy]
-

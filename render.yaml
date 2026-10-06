@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: budbox-crm-api
+    runtime: node
+    region: frankfurt
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @workspace/api-server build
+    startCommand: pnpm --filter @workspace/api-server start
+    healthCheckPath: /api/healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: NOVA_POSHTA_API_KEY
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_EMAIL
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY
+        sync: false
+      - key: GOOGLE_SHEETS_SPREADSHEET_ID
+        sync: false
+      - key: GOOGLE_SHEETS_GID
+        sync: false

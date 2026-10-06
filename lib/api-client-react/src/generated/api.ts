@@ -302,6 +302,94 @@ export function useGetCrmTasks<TData = Awaited<ReturnType<typeof getCrmTasks>>, 
 
 
 
+export const getCreateStandaloneOrderUrl = () => {
+
+
+
+
+  return `/api/crm/orders`
+}
+
+/**
+ * @summary Create an order without requiring a company record
+ */
+export const createStandaloneOrder = async (orderInput: OrderInput, options?: Parameters<typeof customFetch>[1]): Promise<Order> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Order>(getCreateStandaloneOrderUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(orderInput)
+  }
+);}
+
+
+
+
+
+export const getCreateStandaloneOrderMutationKey = () => ['createStandaloneOrder'] as const;
+
+export const getCreateStandaloneOrderMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createStandaloneOrder>>, TError,CreateStandaloneOrderMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createStandaloneOrder>>, TError,CreateStandaloneOrderMutationVariables, TContext> => {
+
+const mutationKey = getCreateStandaloneOrderMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createStandaloneOrder>>, CreateStandaloneOrderMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  createStandaloneOrder(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateStandaloneOrderMutationResult = NonNullable<Awaited<ReturnType<typeof createStandaloneOrder>>>
+    export type CreateStandaloneOrderMutationBody = BodyType<OrderInput>
+    export type CreateStandaloneOrderMutationError = ErrorType<unknown>
+    export type CreateStandaloneOrderMutationVariables = {data: BodyType<OrderInput>}
+
+    /**
+ * @summary Create an order without requiring a company record
+ */
+export const useCreateStandaloneOrder = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createStandaloneOrder>>, TError,CreateStandaloneOrderMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createStandaloneOrder>>,
+        TError,
+        CreateStandaloneOrderMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateStandaloneOrderMutationOptions(options));
+    }
+
 export const getGetCrmOrdersUrl = () => {
 
 
@@ -1059,6 +1147,154 @@ export const useUpdateOrder = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getUpdateOrderMutationOptions(options));
+    }
+
+export const getDeleteOrderUrl = (orderId: number,) => {
+
+
+
+
+  return `/api/orders/${orderId}`
+}
+
+/**
+ * @summary Delete an order
+ */
+export const deleteOrder = async (orderId: number, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getDeleteOrderUrl(orderId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteOrderMutationKey = () => ['deleteOrder'] as const;
+
+export const getDeleteOrderMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteOrder>>, TError,DeleteOrderMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteOrder>>, TError,DeleteOrderMutationVariables, TContext> => {
+
+const mutationKey = getDeleteOrderMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteOrder>>, DeleteOrderMutationVariables> = (props) => {
+          const {orderId} = props ?? {};
+
+          return  deleteOrder(orderId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteOrderMutationResult = NonNullable<Awaited<ReturnType<typeof deleteOrder>>>
+
+    export type DeleteOrderMutationError = ErrorType<ApiError>
+    export type DeleteOrderMutationVariables = {orderId: number}
+
+    /**
+ * @summary Delete an order
+ */
+export const useDeleteOrder = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteOrder>>, TError,DeleteOrderMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteOrder>>,
+        TError,
+        DeleteOrderMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDeleteOrderMutationOptions(options));
+    }
+
+export const getRefreshNovaPoshtaOrderStatusUrl = (orderId: number,) => {
+
+
+
+
+  return `/api/crm/orders/${orderId}/nova-poshta-status`
+}
+
+/**
+ * @summary Refresh an order's delivery status from Nova Poshta
+ */
+export const refreshNovaPoshtaOrderStatus = async (orderId: number, options?: Parameters<typeof customFetch>[1]): Promise<Order> => {
+
+  return customFetch<Order>(getRefreshNovaPoshtaOrderStatusUrl(orderId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getRefreshNovaPoshtaOrderStatusMutationKey = () => ['refreshNovaPoshtaOrderStatus'] as const;
+
+export const getRefreshNovaPoshtaOrderStatusMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof refreshNovaPoshtaOrderStatus>>, TError,RefreshNovaPoshtaOrderStatusMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof refreshNovaPoshtaOrderStatus>>, TError,RefreshNovaPoshtaOrderStatusMutationVariables, TContext> => {
+
+const mutationKey = getRefreshNovaPoshtaOrderStatusMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof refreshNovaPoshtaOrderStatus>>, RefreshNovaPoshtaOrderStatusMutationVariables> = (props) => {
+          const {orderId} = props ?? {};
+
+          return  refreshNovaPoshtaOrderStatus(orderId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RefreshNovaPoshtaOrderStatusMutationResult = NonNullable<Awaited<ReturnType<typeof refreshNovaPoshtaOrderStatus>>>
+
+    export type RefreshNovaPoshtaOrderStatusMutationError = ErrorType<ApiError>
+    export type RefreshNovaPoshtaOrderStatusMutationVariables = {orderId: number}
+
+    /**
+ * @summary Refresh an order's delivery status from Nova Poshta
+ */
+export const useRefreshNovaPoshtaOrderStatus = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof refreshNovaPoshtaOrderStatus>>, TError,RefreshNovaPoshtaOrderStatusMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof refreshNovaPoshtaOrderStatus>>,
+        TError,
+        RefreshNovaPoshtaOrderStatusMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRefreshNovaPoshtaOrderStatusMutationOptions(options));
     }
 
 export const getCreateTaskUrl = (companyId: number,) => {

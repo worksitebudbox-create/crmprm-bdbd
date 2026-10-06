@@ -10,6 +10,7 @@ export type CustomerType = typeof CustomerType[keyof typeof CustomerType];
 
 
 export const CustomerType = {
+  Роздрібний_клієнт: 'Роздрібний клієнт',
   Виконроб: 'Виконроб',
   Опт: 'Опт',
   Будмайданчик: 'Будмайданчик',

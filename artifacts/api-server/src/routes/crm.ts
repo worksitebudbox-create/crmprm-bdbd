@@ -1,5 +1,6 @@
-import { and, desc, eq, ilike, lt, or } from "drizzle-orm";
+import { and, desc, eq, ilike, lt, or, sql } from "drizzle-orm";
 import { Router, type IRouter } from "express";
+import { z } from "zod";
 import {
   CreateCompanyBody,
   CreateCompanyResponse,
@@ -35,18 +36,64 @@ import {
 } from "@workspace/api-zod";
 import {
   activitiesTable,
+  analyticsSettingsTable,
   companiesTable,
   contactsTable,
   db,
   ordersTable,
   tasksTable,
 } from "@workspace/db";
+import {
+  NovaPoshtaTrackingError,
+  queueNovaPoshtaOrderRefresh,
+  refreshNovaPoshtaOrderStatus,
+} from "../lib/nova-poshta-tracking";
 
 const router: IRouter = Router();
-const defaultManager = "Олена Кравчук";
 const completedStage = "Успішно реалізовано";
+const autoPaidPaymentMethods = new Set(["промоплата", "лікпей", "ізіпей", "безготівкова"]);
+
+function getCurrentManager(user?: { email?: string | null } | null): string {
+  const email = user?.email?.trim();
+  return email || "Не призначено";
+}
 
 const iso = (value: Date | null): string | null => value?.toISOString() ?? null;
+
+function normalizePaymentMethod(value?: string | null) {
+  return value?.trim() ?? "";
+}
+
+function isReceivedDeliveryStatus(value?: string | null) {
+  return Boolean(value && /(доставлен|отримано|отримав|отримала|вручено)/i.test(value) && !/(очікує|відмова)/i.test(value));
+}
+
+function resolvePaymentStatus(input: {
+  paymentMethod?: string | null;
+  paymentStatus?: string | null;
+  deliveryStatus?: string | null;
+}): { paymentStatus: string; paidAt: Date | null } {
+  const method = normalizePaymentMethod(input.paymentMethod).toLowerCase();
+  const explicitStatus = input.paymentStatus?.trim() ?? "Неоплачено";
+  const receivedDelivery = isReceivedDeliveryStatus(input.deliveryStatus);
+
+  if (autoPaidPaymentMethods.has(method)) {
+    return { paymentStatus: "Оплачено", paidAt: new Date() };
+  }
+
+  if (method === "новапей") {
+    if (explicitStatus === "Оплачено" || receivedDelivery) {
+      return { paymentStatus: "Оплачено", paidAt: new Date() };
+    }
+    return { paymentStatus: explicitStatus || "Неоплачено", paidAt: null };
+  }
+
+  if (explicitStatus === "Оплачено" || receivedDelivery) {
+    return { paymentStatus: "Оплачено", paidAt: new Date() };
+  }
+
+  return { paymentStatus: explicitStatus || "Неоплачено", paidAt: null };
+}
 const errorBody = (error: string) => ({ error });
 
 function toCompany(row: typeof companiesTable.$inferSelect) {
@@ -94,7 +141,7 @@ async function addActivity(input: {
     .values({
       ...input,
       details: input.details ?? null,
-      createdBy: input.createdBy?.trim() || defaultManager,
+      createdBy: input.createdBy?.trim() || "Не призначено",
     })
     .returning();
   return toActivity(row);
@@ -145,6 +192,80 @@ router.get("/crm/summary", async (req, res): Promise<void> => {
   res.json(response);
 });
 
+const analyticsPlanBodySchema = z.object({
+  value: z.number().finite().nonnegative().optional(),
+  selectedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  selectedPeriod: z.enum(["day", "week", "month"]).optional(),
+});
+
+router.get("/crm/analytics-plan", async (req, res): Promise<void> => {
+  const user = res.locals.authUser as { id: string; email: string | null } | undefined;
+  if (!user) {
+    res.status(401).json({ error: "Sign in to access the analytics plan." });
+    return;
+  }
+
+  const [row] = await db
+    .select()
+    .from(analyticsSettingsTable)
+    .where(eq(analyticsSettingsTable.userId, user.id))
+    .limit(1);
+
+  res.json({
+    value: row?.planValue ?? 0,
+    selectedDate: row?.selectedDate ?? new Date().toISOString().slice(0, 10),
+    selectedPeriod: row?.selectedPeriod ?? "month",
+    updatedAt: row?.updatedAt ? row.updatedAt.toISOString() : null,
+  });
+});
+
+router.put("/crm/analytics-plan", async (req, res): Promise<void> => {
+  const user = res.locals.authUser as { id: string; email: string | null } | undefined;
+  if (!user) {
+    res.status(401).json({ error: "Sign in to save the analytics plan." });
+    return;
+  }
+
+  const parsed = analyticsPlanBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const payload = parsed.data;
+  const nextValue = payload.value ?? 0;
+  const nextSelectedDate = payload.selectedDate ?? new Date().toISOString().slice(0, 10);
+  const nextSelectedPeriod = payload.selectedPeriod ?? "month";
+
+  const [row] = await db
+    .insert(analyticsSettingsTable)
+    .values({
+      userId: user.id,
+      email: user.email,
+      planValue: nextValue,
+      selectedDate: nextSelectedDate,
+      selectedPeriod: nextSelectedPeriod,
+    })
+    .onConflictDoUpdate({
+      target: analyticsSettingsTable.userId,
+      set: {
+        email: user.email,
+        planValue: nextValue,
+        selectedDate: nextSelectedDate,
+        selectedPeriod: nextSelectedPeriod,
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
+
+  res.json({
+    value: row.planValue,
+    selectedDate: row.selectedDate ?? nextSelectedDate,
+    selectedPeriod: row.selectedPeriod ?? nextSelectedPeriod,
+    updatedAt: row.updatedAt.toISOString(),
+  });
+});
+
 router.get("/crm/tasks", async (req, res): Promise<void> => {
   const rows = await db
     .select({
@@ -171,14 +292,113 @@ router.get("/crm/orders", async (req, res): Promise<void> => {
       companyName: companiesTable.name,
     })
     .from(ordersTable)
-    .innerJoin(companiesTable, eq(ordersTable.companyId, companiesTable.id))
+    .leftJoin(companiesTable, eq(ordersTable.companyId, companiesTable.id))
     .orderBy(desc(ordersTable.createdAt));
 
   const response = rows.map(({ order, companyName }) => ({
     ...toOrder(order),
-    companyName,
+    companyName: companyName ?? order.customerName ?? "Без компанії",
   }));
   res.json(GetCrmOrdersResponse.parse(response));
+});
+
+router.post("/crm/orders", async (req, res): Promise<void> => {
+  const parsed = CreateOrderBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json(errorBody(parsed.error.message));
+    return;
+  }
+  const input = parsed.data;
+  const savedOrder = await db.transaction(async (tx) => {
+    const customerName = input.customerName?.trim() || input.phone?.trim() || "";
+    const phone = input.phone?.trim() || null;
+    const phoneDigits = phone?.replace(/\D/g, "") ?? "";
+    let company: typeof companiesTable.$inferSelect | undefined;
+
+    if (phoneDigits) {
+      const [matchedContact] = await tx
+        .select({ company: companiesTable })
+        .from(contactsTable)
+        .innerJoin(companiesTable, eq(contactsTable.companyId, companiesTable.id))
+        .where(sql`regexp_replace(coalesce(${contactsTable.phone}, ''), '[^0-9]', '', 'g') = ${phoneDigits}`)
+        .limit(1);
+      company = matchedContact?.company;
+    }
+    if (!company && customerName) {
+      const [matchedCompany] = await tx
+        .select()
+        .from(companiesTable)
+        .where(sql`lower(trim(${companiesTable.name})) = ${customerName.toLocaleLowerCase("uk-UA")}`)
+        .limit(1);
+      company = matchedCompany;
+    }
+    if (!company && customerName) {
+      const [createdCompany] = await tx
+        .insert(companiesTable)
+        .values({
+          name: customerName,
+          customerType: "Роздрібний клієнт",
+          manager: getCurrentManager(res.locals.authUser as { email?: string | null } | undefined),
+          paymentForm: "готівка",
+        })
+        .returning();
+      company = createdCompany;
+    }
+    if (company && customerName) {
+      const existingContactCondition = phoneDigits
+        ? sql`regexp_replace(coalesce(${contactsTable.phone}, ''), '[^0-9]', '', 'g') = ${phoneDigits}`
+        : sql`lower(trim(${contactsTable.fullName})) = ${customerName.toLocaleLowerCase("uk-UA")}`;
+      const [existingContact] = await tx
+        .select({ id: contactsTable.id })
+        .from(contactsTable)
+        .where(and(eq(contactsTable.companyId, company.id), existingContactCondition))
+        .limit(1);
+      if (!existingContact) {
+        await tx.insert(contactsTable).values({
+          companyId: company.id,
+          fullName: customerName,
+          phone,
+        });
+      }
+    }
+
+    const normalizedPayment = resolvePaymentStatus({
+      paymentMethod: input.paymentMethod,
+      paymentStatus: input.paymentStatus,
+    });
+
+    const [order] = await tx.insert(ordersTable).values({
+      companyId: company?.id ?? null,
+      code: input.code?.trim() || "Нове замовлення",
+      stage: input.stage,
+      amountUah: input.amountUah,
+      ttn: input.ttn ?? null,
+      invoiceNumber: input.invoiceNumber?.trim() || null,
+      comment: input.comment?.trim() || null,
+      deliveryStatus: null,
+      sender: input.sender?.trim() || null,
+      warehouse: input.warehouse?.trim() || null,
+      customerName: input.customerName?.trim() || null,
+      phone,
+      itemCount: input.itemCount ?? null,
+      paymentMethod: input.paymentMethod?.trim() || null,
+      paymentStatus: normalizedPayment.paymentStatus,
+      paidAt: normalizedPayment.paidAt,
+      marketingSource: input.marketingSource?.trim() || null,
+      orderDate: input.orderDate?.toISOString().slice(0, 10) ?? null,
+      arrivalDate: input.arrivalDate?.toISOString() ?? null,
+    }).returning();
+    const code = input.code?.trim() || `ЗАМ-${String(order.id).padStart(5, "0")}`;
+    if (code === order.code) return order;
+    const [numberedOrder] = await tx
+      .update(ordersTable)
+      .set({ code, updatedAt: new Date() })
+      .where(eq(ordersTable.id, order.id))
+      .returning();
+    return numberedOrder;
+  });
+  if (savedOrder.ttn?.trim()) queueNovaPoshtaOrderRefresh(savedOrder.id);
+  res.status(201).json(CreateOrderResponse.parse(toOrder(savedOrder)));
 });
 
 router.get("/crm/activity", async (req, res): Promise<void> => {
@@ -205,6 +425,7 @@ router.get("/companies", async (req, res): Promise<void> => {
     return;
   }
 
+  const currentManager = getCurrentManager(res.locals.authUser as { email?: string | null } | undefined);
   const search = parsed.data.q?.trim();
   const searchCondition = search
     ? or(
@@ -228,7 +449,7 @@ router.get("/companies", async (req, res): Promise<void> => {
 
   const activeOrders = new Map<number, typeof orders>();
   for (const order of orders) {
-    if (order.stage === completedStage) continue;
+    if (order.stage === completedStage || order.companyId === null) continue;
     const existing = activeOrders.get(order.companyId) ?? [];
     existing.push(order);
     activeOrders.set(order.companyId, existing);
@@ -258,7 +479,7 @@ router.get("/companies", async (req, res): Promise<void> => {
   const filtered = items.filter((company) => {
     switch (parsed.data.filter) {
       case "mine":
-        return company.manager === defaultManager;
+        return company.manager === currentManager;
       case "hasTasks":
         return company.nextTask !== null;
       case "overdue":
@@ -278,7 +499,9 @@ router.post("/companies", async (req, res): Promise<void> => {
     return;
   }
   const input = parsed.data;
-  if (!input.name.trim() || !input.manager.trim()) {
+  const currentManager = getCurrentManager(res.locals.authUser as { email?: string | null } | undefined);
+  const nextManager = currentManager;
+  if (!input.name.trim() || !nextManager.trim()) {
     res.status(400).json(errorBody("Назва компанії та менеджер є обов’язковими."));
     return;
   }
@@ -290,7 +513,7 @@ router.post("/companies", async (req, res): Promise<void> => {
       taxId: input.taxId ?? null,
       customerType: input.customerType,
       city: input.city ?? null,
-      manager: input.manager.trim(),
+      manager: nextManager,
       warehouse: input.warehouse ?? null,
       paymentForm: input.paymentForm ?? "ПДВ",
       creditLimitUah: input.creditLimitUah ?? 0,
@@ -343,7 +566,7 @@ router.patch("/companies/:companyId", async (req, res): Promise<void> => {
     .set({
       ...parsed.data,
       ...(parsed.data.name !== undefined ? { name: parsed.data.name.trim() } : {}),
-      ...(parsed.data.manager !== undefined ? { manager: parsed.data.manager.trim() } : {}),
+      manager: getCurrentManager(res.locals.authUser as { email?: string | null } | undefined),
       updatedAt: new Date(),
     })
     .where(eq(companiesTable.id, params.data.companyId))
@@ -356,7 +579,7 @@ router.patch("/companies/:companyId", async (req, res): Promise<void> => {
     companyId: company.id,
     kind: "status",
     title: "Оновлено картку компанії",
-    createdBy: company.manager,
+    createdBy: getCurrentManager(res.locals.authUser as { email?: string | null } | undefined),
   });
   const detail = await getCompanyDetail(company.id);
   res.json(UpdateCompanyResponse.parse(detail));
@@ -392,7 +615,7 @@ router.post("/companies/:companyId/contacts", async (req, res): Promise<void> =>
     kind: "contact",
     title: "Додано контакт",
     details: contact.fullName,
-    createdBy: company.manager,
+    createdBy: getCurrentManager(res.locals.authUser as { email?: string | null } | undefined),
   });
   res.status(201).json(CreateContactResponse.parse(toContact(contact)));
 });
@@ -410,18 +633,36 @@ router.post("/companies/:companyId/orders", async (req, res): Promise<void> => {
     res.status(404).json(errorBody("Компанію не знайдено."));
     return;
   }
+  const normalizedPayment = resolvePaymentStatus({
+    paymentMethod: parsed.data.paymentMethod,
+    paymentStatus: parsed.data.paymentStatus,
+  });
+
   const [order] = await db
-    .insert(ordersTable)
-    .values({
-      companyId: company.id,
-      code: parsed.data.code?.trim() || "Нова угода",
-      stage: parsed.data.stage,
-      amountUah: parsed.data.amountUah,
-      ttn: parsed.data.ttn ?? null,
-      deliveryStatus: parsed.data.deliveryStatus ?? null,
-    })
-    .returning();
-  const code = parsed.data.code?.trim() || `BB-${String(order.id).padStart(5, "0")}`;
+  .insert(ordersTable)
+  .values({
+    companyId: company.id,
+    code: parsed.data.code?.trim() || "Нова угода",
+    stage: parsed.data.stage,
+    amountUah: parsed.data.amountUah,
+    ttn: parsed.data.ttn ?? null,
+    invoiceNumber: parsed.data.invoiceNumber?.trim() || null,
+    comment: parsed.data.comment?.trim() || null,
+    deliveryStatus: null,
+    sender: parsed.data.sender?.trim() || null,
+    warehouse: parsed.data.warehouse?.trim() || null,
+    customerName: parsed.data.customerName?.trim() || null,
+    phone: parsed.data.phone?.trim() || null,
+    itemCount: parsed.data.itemCount ?? null,
+    paymentMethod: parsed.data.paymentMethod?.trim() || null,
+    paymentStatus: normalizedPayment.paymentStatus,
+    paidAt: normalizedPayment.paidAt,
+    marketingSource: parsed.data.marketingSource?.trim() || null,
+    orderDate: parsed.data.orderDate?.toISOString().slice(0, 10) ?? null,
+    arrivalDate: parsed.data.arrivalDate?.toISOString() ?? null,
+  })
+  .returning();
+  const code = parsed.data.code?.trim() || `ЗАМ-${String(order.id).padStart(5, "0")}`;
   const [savedOrder] = code === order.code
     ? [order]
     : await db.update(ordersTable).set({ code, updatedAt: new Date() }).where(eq(ordersTable.id, order.id)).returning();
@@ -430,8 +671,9 @@ router.post("/companies/:companyId/orders", async (req, res): Promise<void> => {
     kind: "order",
     title: "Створено замовлення",
     details: `${savedOrder.code} · ${savedOrder.amountUah.toLocaleString("uk-UA")} ₴`,
-    createdBy: company.manager,
+    createdBy: getCurrentManager(res.locals.authUser as { email?: string | null } | undefined),
   });
+  if (savedOrder.ttn?.trim()) queueNovaPoshtaOrderRefresh(savedOrder.id);
   res.status(201).json(CreateOrderResponse.parse(toOrder(savedOrder)));
 });
 
@@ -443,24 +685,99 @@ router.patch("/orders/:orderId", async (req, res): Promise<void> => {
     res.status(400).json(errorBody(message));
     return;
   }
+  const { arrivalDate, orderDate, ...orderUpdate } = parsed.data;
+  const [existingOrder] = await db
+    .select({
+      paymentStatus: ordersTable.paymentStatus,
+      paidAt: ordersTable.paidAt,
+      paymentMethod: ordersTable.paymentMethod,
+      deliveryStatus: ordersTable.deliveryStatus,
+      ttn: ordersTable.ttn,
+    })
+    .from(ordersTable)
+    .where(eq(ordersTable.id, params.data.orderId))
+    .limit(1);
+  if (!existingOrder) {
+    res.status(404).json(errorBody("Замовлення не знайдено."));
+    return;
+  }
+  const nextPayment = resolvePaymentStatus({
+    paymentMethod: parsed.data.paymentMethod ?? orderUpdate.paymentMethod ?? null,
+    paymentStatus: parsed.data.paymentStatus ?? orderUpdate.paymentStatus ?? existingOrder.paymentStatus,
+    deliveryStatus: existingOrder.deliveryStatus,
+  });
+  const paidAtUpdate = parsed.data.paymentStatus === undefined && parsed.data.paymentMethod === undefined
+    ? {}
+    : { paymentStatus: nextPayment.paymentStatus, paidAt: nextPayment.paidAt };
   const [order] = await db
     .update(ordersTable)
-    .set({ ...parsed.data, updatedAt: new Date() })
+    .set({
+      ...orderUpdate,
+      ...paidAtUpdate,
+      ...(orderDate !== undefined
+        ? { orderDate: orderDate?.toISOString().slice(0, 10) ?? null }
+        : {}),
+      ...(arrivalDate !== undefined
+        ? { arrivalDate: arrivalDate?.toISOString() ?? null }
+        : {}),
+      updatedAt: new Date(),
+    })
     .where(eq(ordersTable.id, params.data.orderId))
     .returning();
   if (!order) {
     res.status(404).json(errorBody("Замовлення не знайдено."));
     return;
   }
-  const [company] = await db.select().from(companiesTable).where(eq(companiesTable.id, order.companyId)).limit(1);
-  await addActivity({
-    companyId: order.companyId,
-    kind: "status",
-    title: "Оновлено замовлення",
-    details: `${order.code} · ${order.stage}`,
-    createdBy: company?.manager ?? defaultManager,
-  });
+  if (order.companyId !== null) {
+    const [company] = await db.select().from(companiesTable).where(eq(companiesTable.id, order.companyId)).limit(1);
+    await addActivity({
+      companyId: order.companyId,
+      kind: "status",
+      title: "Оновлено замовлення",
+      details: `${order.code} · ${order.stage}`,
+      createdBy: getCurrentManager(res.locals.authUser as { email?: string | null } | undefined),
+    });
+  }
+  if (parsed.data.ttn !== undefined && order.ttn?.trim() && order.ttn !== existingOrder.ttn) {
+    queueNovaPoshtaOrderRefresh(order.id);
+  }
   res.json(UpdateOrderResponse.parse(toOrder(order)));
+});
+
+router.post("/crm/orders/:orderId/nova-poshta-status", async (req, res): Promise<void> => {
+  const orderId = Number(req.params.orderId);
+  if (!Number.isInteger(orderId) || orderId < 1) {
+    res.status(400).json(errorBody("Невірний номер замовлення."));
+    return;
+  }
+  try {
+    const updated = await refreshNovaPoshtaOrderStatus(orderId);
+    res.json(UpdateOrderResponse.parse(toOrder(updated)));
+  } catch (error) {
+    if (error instanceof NovaPoshtaTrackingError) {
+      res.status(error.statusCode).json(errorBody(error.message));
+      return;
+    }
+    throw error;
+  }
+});
+
+router.delete("/orders/:orderId", async (req, res): Promise<void> => {
+  const params = UpdateOrderParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json(errorBody(params.error.message));
+    return;
+  }
+
+  const [deleted] = await db
+    .delete(ordersTable)
+    .where(eq(ordersTable.id, params.data.orderId))
+    .returning({ id: ordersTable.id });
+  if (!deleted) {
+    res.status(404).json(errorBody("Замовлення не знайдено."));
+    return;
+  }
+  res.status(204).end();
 });
 
 router.post("/companies/:companyId/tasks", async (req, res): Promise<void> => {
@@ -482,7 +799,7 @@ router.post("/companies/:companyId/tasks", async (req, res): Promise<void> => {
       companyId: company.id,
       title: parsed.data.title.trim(),
       dueAt: parsed.data.dueAt ? new Date(parsed.data.dueAt) : null,
-      assignee: parsed.data.assignee.trim() || company.manager,
+      assignee: parsed.data.assignee.trim() || getCurrentManager(res.locals.authUser as { email?: string | null } | undefined),
     })
     .returning();
   await addActivity({
@@ -490,7 +807,7 @@ router.post("/companies/:companyId/tasks", async (req, res): Promise<void> => {
     kind: "task",
     title: "Створено нагадування",
     details: task.title,
-    createdBy: task.assignee,
+    createdBy: getCurrentManager(res.locals.authUser as { email?: string | null } | undefined),
   });
   res.status(201).json(CreateTaskResponse.parse(toTask(task)));
 });
@@ -520,13 +837,12 @@ router.patch("/tasks/:taskId", async (req, res): Promise<void> => {
     })
     .where(eq(tasksTable.id, existing.id))
     .returning();
-  const [company] = await db.select().from(companiesTable).where(eq(companiesTable.id, task.companyId)).limit(1);
   await addActivity({
     companyId: task.companyId,
     kind: "task",
     title: isCompleted ? "Нагадування виконано" : "Оновлено нагадування",
     details: task.title,
-    createdBy: task.assignee || company?.manager,
+    createdBy: getCurrentManager(res.locals.authUser as { email?: string | null } | undefined),
   });
   res.json(UpdateTaskResponse.parse(toTask(task)));
 });
@@ -549,7 +865,7 @@ router.post("/companies/:companyId/notes", async (req, res): Promise<void> => {
     kind: "note",
     title: parsed.data.title.trim(),
     details: parsed.data.details ?? null,
-    createdBy: parsed.data.createdBy,
+    createdBy: getCurrentManager(res.locals.authUser as { email?: string | null } | undefined),
   });
   res.status(201).json(CreateNoteResponse.parse(activity));
 });

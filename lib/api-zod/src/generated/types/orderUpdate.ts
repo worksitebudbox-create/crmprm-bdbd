@@ -14,5 +14,30 @@ export interface OrderUpdate {
   /** @nullable */
   ttn?: string | null;
   /** @nullable */
-  deliveryStatus?: string | null;
+  invoiceNumber?: string | null;
+  /** @nullable */
+  comment?: string | null;
+  /** @nullable */
+  sender?: string | null;
+  /** @nullable */
+  warehouse?: string | null;
+  /** @nullable */
+  customerName?: string | null;
+  /** @nullable */
+  phone?: string | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  itemCount?: number | null;
+  /** @nullable */
+  paymentMethod?: string | null;
+  /** @nullable */
+  paymentStatus?: string | null;
+  /** @nullable */
+  marketingSource?: string | null;
+  /** @nullable */
+  orderDate?: Date | null;
+  /** @nullable */
+  arrivalDate?: Date | null;
 }
