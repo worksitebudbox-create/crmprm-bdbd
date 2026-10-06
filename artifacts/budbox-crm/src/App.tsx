@@ -6,11 +6,11 @@ import {
   Activity, ArrowDownUp, ArrowRight, BarChart3, Bell, Building2, CalendarClock, Check, ChevronDown, Menu,
   ChevronRight, CircleAlert, ClipboardList, Copy, CreditCard, Edit3, FileText, Filter,
   History, LayoutDashboard, Mail, MapPin, MessageCircle, Package, Plus, Search, Send,
-  Settings2, ShieldCheck, Tag, Truck, UserRound, UsersRound, Wallet, X, CircleHelp, SlidersHorizontal, LogOut, LoaderCircle
+  Settings2, ShieldCheck, Tag, Truck, UserRound, UsersRound, Wallet, X, CircleHelp, SlidersHorizontal, LogOut, LoaderCircle, RefreshCw
 } from 'lucide-react';
 import {
   CustomerType, DealStage, GetCompaniesFilter, PaymentForm,
-  getGetCompaniesQueryKey, getGetCompanyQueryKey, getGetCrmSummaryQueryKey, getGetCrmTasksQueryKey,
+  customFetch, getGetCompaniesQueryKey, getGetCompanyQueryKey, getGetCrmSummaryQueryKey, getGetCrmTasksQueryKey,
   getGetCrmOrdersQueryKey, getGetCrmActivityQueryKey, setAuthTokenGetter, setBaseUrl,
   useCreateCompany, useCreateContact, useCreateNote, useCreateOrder, useCreateStandaloneOrder, useCreateTask,
   useDeleteOrder, useGetCompanies, useGetCompany, useGetCrmSummary, useGetCrmTasks, useGetCrmOrders, useGetCrmActivity, useUpdateCompany, useUpdateOrder,
@@ -392,7 +392,7 @@ function CrmWorkspace({ userEmail, isAdmin, onSignOut }: { userEmail: string | n
       <main className="main"><div className="page-heading"><div><div className="eyebrow"><span /> РОБОЧА ЧЕРГА ПРОДАЖІВ</div><h1>Клієнти <small data-testid="text-company-count">{summaryQuery.data?.totalCompanies ?? companies.length} клієнтів і компаній</small></h1></div><div className="client-heading-actions"><button data-testid="button-new-company" className="secondary-button" onClick={() => open('company')}><Plus size={16} /> <span>Нова компанія</span></button><button data-testid="button-new-client" className="primary-button" onClick={() => open('client', { customerType: retailCustomerType, manager: currentManager, paymentForm: PaymentForm.готівка })}><Plus size={16} /> <span>Новий клієнт</span></button></div></div>
         <div className="summary-strip">{summaryQuery.isLoading ? <><Skeleton /><Skeleton /><Skeleton /><Skeleton /></> : summaryQuery.isError ? <div className="summary-error">Не вдалося завантажити підсумок <button onClick={() => summaryQuery.refetch()}>Повторити</button></div> : <><div><span>КОМПАНІЇ</span><b data-testid="summary-companies">{summaryQuery.data?.totalCompanies ?? 0}</b></div><div><span>АКТИВНІ ЗАМОВЛЕННЯ</span><b data-testid="summary-orders">{summaryQuery.data?.activeOrders ?? 0}</b></div><div><span>ВОРОНКА</span><b data-testid="summary-pipeline">{money(summaryQuery.data?.pipelineValueUah ?? 0)}</b></div><div className="summary-alert"><span>ПРОСТРОЧЕНІ ЗАВДАННЯ</span><b data-testid="summary-overdue">{summaryQuery.data?.overdueTasks ?? 0}</b></div></>}</div>
          <div className="crm-shell"><section className="queue"><div className="queue-head"><div><h2>Черга клієнтів</h2><p>Фізичні особи, компанії та їхні замовлення</p></div><button data-testid="button-sort-companies" className="icon-button" onClick={() => setSortNewest((value) => !value)}><ArrowDownUp size={15} /></button><div className="search-wrap"><Search size={15} /><input data-testid="input-company-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Ім’я, код або місто" /></div><div className="filter-row">{filters.map((item) => <button data-testid={`filter-${item.value}`} key={item.value} className={filter === item.value ? 'selected' : ''} onClick={() => setFilter(item.value)}>{item.label}</button>)}</div></div><div className="queue-labels"><span>КЛІЄНТ / ТИП</span><span>ЕТАП / СУМА</span></div><div className="company-list bb-scroll">{companiesQuery.isLoading ? <>{[1, 2, 3, 4].map((item) => <div key={item} className="company-skeleton"><Skeleton /><Skeleton /><Skeleton /></div>)}</> : companiesQuery.isError ? <div className="empty-state"><CircleAlert size={22} /><b>Не вдалося завантажити клієнтів</b><button onClick={() => companiesQuery.refetch()}>Повторити</button></div> : sorted.length ? sorted.map((company) => <CompanyRow key={company.id} company={company} active={company.id === activeId} select={() => { setSelectedId(company.id); localStorage.setItem('budbox-selected-company', String(company.id)); setTab('Огляд'); }} />) : companies.length === 0 && !query && filter === GetCompaniesFilter.all ? <div className="empty-state"><UsersRound size={24} /><b>Клієнтів ще немає</b><span>Створіть картку клієнта або компанії.</span><button data-testid="button-create-first-company" onClick={() => open('client', { customerType: retailCustomerType, manager: currentManager, paymentForm: PaymentForm.готівка, channel: 'Instagram Direct' })}>Створити клієнта</button></div> : <div className="empty-state"><Search size={23} /><b>Нічого не знайдено</b><span>Змініть пошук або фільтр</span><button onClick={() => { setQuery(''); setFilter(GetCompaniesFilter.all); }}>Скинути фільтри</button></div>}</div><div className="queue-foot"><span>Показано {sorted.length} із {companies.length}</span><button onClick={() => { setQuery(''); setFilter(GetCompaniesFilter.all); }}>Скинути</button></div></section>
-          <section className="profile-pane bb-scroll">{!activeId ? <div className="profile-empty"><Building2 size={32} /><h2>Оберіть компанію</h2><p>Профіль клієнта з’явиться тут після вибору в черзі.</p></div> : detailQuery.isLoading ? <div className="loading-profile"><Skeleton className="wide" /><Skeleton className="hero-skeleton" /><Skeleton className="wide" /></div> : detailQuery.isError || !detail ? <div className="empty-state"><CircleAlert size={22} /><b>Профіль недоступний</b><button onClick={() => detailQuery.refetch()}>Повторити</button></div> : <div className="profile-content bb-enter"><div className="profile-header"><div className="profile-breadcrumb">КЛІЄНТИ <ChevronRight size={12} /> {detail.name}</div><div className="profile-main"><div className="company-icon"><Building2 size={23} /></div><div className="company-title"><div><h2 data-testid={`text-company-${detail.id}`}>{detail.name}</h2><span className="badge type-badge">{detail.customerType}</span></div><div className="company-meta"><button data-testid="button-copy-tax-id" onClick={() => copy(detail.taxId, 'Код')}><ShieldCheck size={13} /> {detail.taxId || 'Код не вказано'} <Copy size={11} /></button><span><MapPin size={13} />{detail.city || 'Місто не вказано'}</span><span className={`source-chip ${detail.source ? 'has-source' : ''}`}><Tag size={11} /> Маркетинг: {detail.source || 'Не вказано'}</span></div></div><div className="profile-buttons"><button data-testid="button-add-note" className="secondary-button" onClick={() => open('note')}><FileText size={14} /> Нотатка</button><button data-testid="button-add-task" className="secondary-button" onClick={() => open('task')}><Plus size={14} /> Завдання</button><button data-testid="button-edit-company" className="primary-button small" onClick={() => open('edit', companyForm)}><Edit3 size={14} /> Редагувати</button></div></div><div className="tabs">{(['Огляд', 'Історія', 'Контакти', 'Замовлення'] as const).map((item) => <button data-testid={`tab-${item}`} key={item} className={tab === item ? 'active' : ''} onClick={() => setTab(item)}>{item}{item === 'Історія' && <em>{detail.activity.length}</em>}{item === 'Контакти' && <em>{detail.contacts.length}</em>}</button>)}</div></div>{tab === 'Огляд' ? <Overview detail={detail} open={open} completeTask={completeTask} editOrder={editOrder} editCompany={() => open('edit', companyForm)} copy={copy} flash={flash} /> : tab === 'Історія' ? <ActivityTab detail={detail} open={open} /> : tab === 'Контакти' ? <ContactsTab detail={detail} open={open} /> : <OrdersTab detail={detail} open={open} editOrder={editOrder} deleteOrder={deleteOrder} />}</div>}</section></div></main></div>
+          <section className="profile-pane bb-scroll">{!activeId ? <div className="profile-empty"><Building2 size={32} /><h2>Оберіть компанію</h2><p>Профіль клієнта з’явиться тут після вибору в черзі.</p></div> : detailQuery.isLoading ? <div className="loading-profile"><Skeleton className="wide" /><Skeleton className="hero-skeleton" /><Skeleton className="wide" /></div> : detailQuery.isError || !detail ? <div className="empty-state"><CircleAlert size={22} /><b>Профіль недоступний</b><button onClick={() => detailQuery.refetch()}>Повторити</button></div> : <div className="profile-content bb-enter"><div className="profile-header"><div className="profile-breadcrumb">КЛІЄНТИ <ChevronRight size={12} /> {detail.name}</div><div className="profile-main"><div className="company-icon"><Building2 size={23} /></div><div className="company-title"><div><h2 data-testid={`text-company-${detail.id}`}>{detail.name}</h2><span className="badge type-badge">{detail.customerType}</span></div><div className="company-meta"><button data-testid="button-copy-tax-id" onClick={() => copy(detail.taxId, 'Код')}><ShieldCheck size={13} /> {detail.taxId || 'Код не вказано'} <Copy size={11} /></button><span><MapPin size={13} />{detail.city || 'Місто не вказано'}</span><span className={`source-chip ${detail.source ? 'has-source' : ''}`}><Tag size={11} /> Маркетинг: {detail.source || 'Не вказано'}</span></div></div><div className="profile-buttons"><button data-testid="button-add-note" className="secondary-button" onClick={() => open('note')}><FileText size={14} /> Нотатка</button><button data-testid="button-add-task" className="secondary-button" onClick={() => open('task')}><Plus size={14} /> Завдання</button><button data-testid="button-edit-company" className="primary-button small" onClick={() => open('edit', companyForm)}><Edit3 size={14} /> Редагувати</button></div></div><div className="tabs">{(['Огляд', 'Історія', 'Контакти', 'Замовлення'] as const).map((item) => <button data-testid={`tab-${item}`} key={item} className={tab === item ? 'active' : ''} onClick={() => setTab(item)}>{item}{item === 'Історія' && <em>{detail.activity.length}</em>}{item === 'Контакти' && <em>{detail.contacts.length}</em>}</button>)}</div></div>{tab === 'Огляд' ? <Overview detail={detail} open={open} completeTask={completeTask} editOrder={editOrder} editCompany={() => open('edit', companyForm)} copy={copy} flash={flash} /> : tab === 'Історія' ? <ActivityTab detail={detail} open={open} /> : tab === 'Контакти' ? <ContactsTab detail={detail} open={open} /> : <OrdersTab detail={detail} open={open} editOrder={editOrder} deleteOrder={deleteOrder} refreshTracking={() => refresh(activeId ?? undefined)} />}</div>}</section></div></main></div>
     {notice && <div className={`notice ${notice.kind}`} data-testid="status-notice"><Check size={15} /> {notice.text}</div>}
     {showCompanyModal && <Modal title={title} subtitle="Дані будуть збережені у CRM через API" close={close}><CompanyForm form={form} setValue={setValue} onSubmit={() => submitCompany(modal === 'edit')} busy={busy} edit={modal === 'edit'} /></Modal>}
     {modal === 'client' && <Modal title="Новий клієнт" subtitle="Створіть окрему картку покупця та збережіть його телефон у контактах" close={close}><ClientForm form={form} setValue={setValue} onSubmit={submitClient} busy={busy} /></Modal>}
@@ -803,7 +803,7 @@ function GlobalPage({ page, userEmail, isAdmin, onSignOut }: { page: 'overview' 
     </div>
     {notice && <button className={`notice ${noticeIsError ? 'error' : 'success'}`} data-testid="status-notice" onClick={() => setNotice('')}>{noticeIsError ? <CircleAlert size={15} /> : <Check size={15} />} {notice}</button>}
     {formKind && <Modal title={formKind === 'task' ? 'Нове завдання' : formKind === 'order' ? 'Нове замовлення' : 'Новий запис активності'} subtitle={formKind === 'task' ? 'Оберіть компанію для нагадування' : formKind === 'order' ? 'Внесіть дані покупця, відправлення та оплати' : 'Зафіксуйте нотатку в історії вибраної компанії'} close={() => setFormKind(null)}><form className="form-grid" onSubmit={submit}>{formKind !== 'order' && <Field label="Компанія" wide><select data-testid="select-global-company" required value={form.companyId} onChange={(event) => setForm({ ...form, companyId: event.target.value })}><option value="">Оберіть компанію</option>{companies.map((company) => <option value={company.id} key={company.id}>{company.name}</option>)}</select></Field>}{formKind === 'task' ? <><Field label="Що потрібно зробити?" wide><input data-testid="input-global-task-title" required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></Field><Field label="Термін"><input type="datetime-local" value={form.dueAt} onChange={(event) => setForm({ ...form, dueAt: event.target.value })} /></Field><Field label="Відповідальна"><input value={form.assignee} onChange={(event) => setForm({ ...form, assignee: event.target.value })} /></Field></> : formKind === 'order' ? <GlobalOrderFields form={form} setValue={setValue} /> : <><Field label="Заголовок" wide><input data-testid="input-global-activity-title" required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></Field><Field label="Деталі" wide><textarea data-testid="input-global-activity-details" rows={4} value={form.details} onChange={(event) => setForm({ ...form, details: event.target.value })} /></Field></>}<div className="form-actions"><button className="primary-button" data-testid="button-submit-global" disabled={createTask.isPending || createStandaloneOrder.isPending || createNote.isPending}>{createTask.isPending || createStandaloneOrder.isPending || createNote.isPending ? 'Збереження…' : 'Зберегти'}</button></div></form></Modal>}
-    {selectedOrder && <OrderDetailModal order={selectedOrder} company={selectedOrder.companyId === null ? undefined : companiesById.get(selectedOrder.companyId)} save={saveOrder} remove={deleteOrder} close={() => setSelectedOrderId(null)} />}
+    {selectedOrder && <OrderDetailModal order={selectedOrder} company={selectedOrder.companyId === null ? undefined : companiesById.get(selectedOrder.companyId)} save={saveOrder} remove={deleteOrder} refreshTracking={() => refresh(selectedOrder.companyId ?? undefined)} close={() => setSelectedOrderId(null)} />}
   </div>;
 }
 function AdminPanel({ orders, companyCount, compact, toggleCompact }: {
@@ -909,17 +909,19 @@ function orderDraft(order: OrderBoardItem): OrderDraft {
     paymentStatus: order.paymentStatus || 'Неоплачено',
   };
 }
-function OrderDetailModal({ order, company, save, remove, close }: {
+function OrderDetailModal({ order, company, save, remove, refreshTracking, close }: {
   order: OrderBoardItem;
   company: CompanyListItem | undefined;
   save: (id: number, companyId: number | null, data: OrderUpdate) => Promise<void>;
   remove: (id: number) => Promise<void>;
+  refreshTracking: () => Promise<unknown>;
   close: () => void;
 }) {
   const [draft, setDraft] = useState(() => orderDraft(order));
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [refreshingTracking, setRefreshingTracking] = useState(false);
   const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => {
@@ -927,6 +929,7 @@ function OrderDetailModal({ order, company, save, remove, close }: {
   }, [order, editing]);
   const deliveryStatus = order.deliveryStatus || 'Статус ще не перевірявся';
   const paymentStatus = order.paymentStatus || 'Неоплачено';
+  const hasUnsavedTtn = draft.ttn.trim() !== (order.ttn ?? '').trim();
   const setDraftValue = (key: keyof OrderDraft, value: string) =>
     setDraft((current) => ({ ...current, [key]: value }));
   const cancelEdit = () => {
@@ -980,6 +983,21 @@ function OrderDetailModal({ order, company, save, remove, close }: {
       setDeleting(false);
     }
   };
+  const updateTracking = async () => {
+    setRefreshingTracking(true);
+    setError('');
+    try {
+      await customFetch<unknown>(`/api/crm/orders/${order.id}/nova-poshta-status`, {
+        method: 'POST',
+        responseType: 'json',
+      });
+      await refreshTracking();
+    } catch (trackingError) {
+      setError(trackingError instanceof Error ? trackingError.message : 'Не вдалося оновити статус Нової пошти.');
+    } finally {
+      setRefreshingTracking(false);
+    }
+  };
   return <>
     <Modal title={order.code || `Замовлення #${order.id}`} subtitle="Деталі замовлення, оплати та доставки" close={close}>
     <form className="order-detail-modal" onSubmit={(event) => void submitEdit(event)}>
@@ -1005,6 +1023,7 @@ function OrderDetailModal({ order, company, save, remove, close }: {
       {error && <p className="order-form-error" role="alert">{error}</p>}
       <div className="order-detail-footer"><span>Спосіб оплати: <b>{order.paymentMethod || 'Не вказано'}</b></span><span>Склад: <b>{order.warehouse || 'Не вказано'}</b></span><span>Зараховано: <b>{paymentStatus === 'Оплачено' ? shortDate(order.paidAt) : 'Ще не зараховано'}</b></span></div>
       <div className="order-detail-actions">
+        <button type="button" className="secondary-button" onClick={() => void updateTracking()} disabled={!draft.ttn.trim() || hasUnsavedTtn || refreshingTracking || saving || deleting} title={hasUnsavedTtn ? 'Спочатку збережіть зміни ТТН' : undefined}><RefreshCw size={14} className={refreshingTracking ? 'spin' : ''} />{refreshingTracking ? 'Оновлення статусу…' : 'Оновити статус НП'}</button>
         {editing ? <>
           <button type="button" className="secondary-button" onClick={cancelEdit} disabled={saving || deleting}>Скасувати</button>
           <button type="submit" className="primary-button" disabled={saving || deleting}>{saving ? 'Збереження…' : 'Зберегти зміни'}</button>
@@ -1057,17 +1076,18 @@ function ContactMini({ contact, copy, flash }: { contact: CompanyDetail['contact
 function ActivityItem({ item }: { item: CompanyDetail['activity'][number] }) { return <div className="activity-item"><span className="activity-dot"><Activity size={11} /></span><div><div className="activity-title"><b>{item.title}</b><time>{date(item.createdAt)}</time></div><p>{item.details || 'Без додаткових деталей'}</p><small>{item.createdBy}</small></div></div>; }
 function ActivityTab({ detail, open }: { detail: CompanyDetail; open: (kind: ModalKind) => void }) { return <div className="tab-page"><div className="tab-heading"><div><h3>Історія взаємодій</h3><p>Усі записи по клієнту в одному порядку.</p></div><button className="primary-button small" data-testid="button-add-history-note" onClick={() => open('note')}><Plus size={14} /> Додати запис</button></div>{detail.activity.length ? <div className="timeline">{detail.activity.map((item) => <ActivityItem key={item.id} item={item} />)}</div> : <div className="empty-state large"><History size={28} /><b>Історія порожня</b><span>Додайте нотатку, щоб зафіксувати домовленість.</span></div>}</div>; }
 function ContactsTab({ detail, open }: { detail: CompanyDetail; open: (kind: ModalKind) => void }) { return <div className="tab-page"><div className="tab-heading"><div><h3>Контактні особи</h3><p>Люди, з якими команда BUDBOX працює по цій компанії.</p></div><button className="primary-button small" data-testid="button-add-contact" onClick={() => open('contact')}><Plus size={14} /> Додати контакт</button></div>{detail.contacts.length ? <div className="contacts-grid">{detail.contacts.map((contact) => <div className="contact-card" key={contact.id}><div className="avatar large">{initials(contact.fullName)}</div><h4>{contact.fullName}</h4><span>{contact.role || 'Роль не вказана'}</span><p><MessageCircle size={13} />{contact.phone || 'Телефон не вказано'}</p><p><Mail size={13} />{contact.email || 'Email не вказано'}</p><div className="contact-actions"><a href={contact.phone ? `tel:${contact.phone}` : undefined}>Зателефонувати</a><button onClick={() => navigator.clipboard?.writeText(contact.telegram || contact.viber || '')}>Месенджер</button></div></div>)}</div> : <div className="empty-state large"><UsersRound size={28} /><b>Контактів ще немає</b><span>Додайте першу контактну особу компанії.</span></div>}</div>; }
-function OrdersTab({ detail, open, editOrder, deleteOrder }: {
+function OrdersTab({ detail, open, editOrder, deleteOrder, refreshTracking }: {
   detail: CompanyDetail;
   open: (kind: ModalKind) => void;
   editOrder: (id: number, data: OrderUpdate) => Promise<void>;
   deleteOrder: (id: number) => Promise<void>;
+  refreshTracking: () => Promise<unknown>;
 }) {
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const orderRows: OrderBoardItem[] = detail.orders.map((order) => ({ ...order, companyName: detail.name }));
   const selectedOrder = orderRows.find((order) => order.id === selectedOrderId);
   return <div className="tab-page"><div className="tab-heading"><div><h3>Замовлення клієнта</h3><p>Відкрийте картку, щоб керувати оплатою та доставкою.</p></div><button className="primary-button small" data-testid="button-add-order" onClick={() => open('order')}><Plus size={14} /> Нове замовлення</button></div>  {orderRows.length ? <div className="orders-card-grid">{orderRows.map((order, index) => <OrderCard key={order.id} order={order} marketingSource={order.marketingSource || detail.source} index={index} open={() => setSelectedOrderId(order.id)} />)}</div> : <div className="empty-state large"><Package size={28} /><b>Замовлень ще немає</b><span>Створіть замовлення, щоб відстежувати оплату та доставку.</span></div>}
-    {selectedOrder && <OrderDetailModal order={selectedOrder} company={undefined} save={(id, _companyId, data) => editOrder(id, data)} remove={deleteOrder} close={() => setSelectedOrderId(null)} />}
+    {selectedOrder && <OrderDetailModal order={selectedOrder} company={undefined} save={(id, _companyId, data) => editOrder(id, data)} remove={deleteOrder} refreshTracking={refreshTracking} close={() => setSelectedOrderId(null)} />}
   </div>;
 }
 

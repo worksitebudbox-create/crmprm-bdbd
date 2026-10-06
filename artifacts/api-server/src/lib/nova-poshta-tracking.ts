@@ -84,6 +84,7 @@ export async function refreshNovaPoshtaOrderStatus(orderId: number) {
           ],
         },
       }),
+      signal: AbortSignal.timeout(15_000),
     });
     payload = await response.json();
     if (!response.ok) {

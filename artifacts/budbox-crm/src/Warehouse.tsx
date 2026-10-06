@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { AlertTriangle, FileSpreadsheet, Package as WarehouseIcon, Search, Upload } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { customFetch } from '@workspace/api-client-react';
 
 type StockLocation = { name: string; quantity: number };
 type StockItem = { sku: string; name: string; totalQuantity: number; locations: StockLocation[] };
@@ -146,15 +147,8 @@ export default function WarehousePage() {
 
   useEffect(() => {
     let active = true;
-    void fetch('/api/crm/warehouse/stock')
-      .then(async (response) => {
-        const result: unknown = await response.json();
-        if (!response.ok) {
-          const message = typeof result === 'object' && result !== null && 'error' in result && typeof result.error === 'string'
-            ? result.error
-            : 'Не вдалося завантажити залишки з бази даних.';
-          throw new Error(message);
-        }
+    void customFetch<{ snapshot: unknown }>('/api/crm/warehouse/stock', { responseType: 'json' })
+      .then((result) => {
         if (!isRecord(result) || !('snapshot' in result)) {
           throw new Error('База даних повернула некоректний знімок залишків.');
         }
@@ -195,20 +189,16 @@ export default function WarehousePage() {
       const parsed = parseStockFile(await file.arrayBuffer());
       const items = parsed.items;
       const imported: StoredStock = { items, updatedAt: new Date().toISOString(), fileName: file.name };
-      const response = await fetch('/api/crm/warehouse/stock', {
+      const result = await customFetch<{ snapshot: unknown }>('/api/crm/warehouse/stock', {
         method: 'PUT',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify(imported),
+        responseType: 'json',
       });
-      const result: unknown = await response.json();
-      if (!response.ok) {
-        const message = typeof result === 'object' && result !== null && 'error' in result && typeof result.error === 'string'
-          ? result.error
-          : 'Не вдалося зберегти залишки у базі даних.';
-        throw new Error(message);
+      if (!isRecord(result) || !('snapshot' in result) || !isStoredStock(result.snapshot)) {
+        throw new Error('API зберегло залишки, але повернуло некоректну відповідь.');
       }
-      localStorage.setItem(STOCK_KEY, JSON.stringify(imported));
-      setStock(imported);
+      localStorage.setItem(STOCK_KEY, JSON.stringify(result.snapshot));
+      setStock(result.snapshot);
       if (parsed.warnings.length) {
         const shownWarnings = parsed.warnings.slice(0, 8).join('; ');
         const moreWarnings = parsed.warnings.length > 8
