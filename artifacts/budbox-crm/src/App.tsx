@@ -483,8 +483,8 @@ function parseAnalyticsDate(value?: string | null) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function getAnalyticsOrderDate(order: OrderBoardItem) {
-  return parseAnalyticsDate(order.orderDate ?? order.paidAt ?? order.createdAt);
+function getAnalyticsRevenueDate(order: OrderBoardItem) {
+  return parseAnalyticsDate(order.paidAt ?? order.orderDate ?? order.createdAt);
 }
 
 function addMonths(date: Date, offset: number) {
@@ -529,9 +529,9 @@ function buildAnalyticsChartData(orders: OrderBoardItem[], period: AnalyticsPeri
     const totalsByDay = new Map<string, number>();
     for (const order of orders) {
       if (order.paymentStatus !== 'Оплачено') continue;
-      const orderDate = getAnalyticsOrderDate(order);
-      if (!orderDate) continue;
-      const key = localDateKey(orderDate.toISOString());
+      const revenueDate = getAnalyticsRevenueDate(order);
+      if (!revenueDate) continue;
+      const key = localDateKey(revenueDate.toISOString());
       if (key < rangeStart || key > rangeEnd) continue;
       totalsByDay.set(key, (totalsByDay.get(key) ?? 0) + order.amountUah);
     }
@@ -547,7 +547,7 @@ function buildAnalyticsChartData(orders: OrderBoardItem[], period: AnalyticsPeri
     return Array.from({ length: 7 }, (_, index) => {
       const day = addDays(base, index - 6);
       const key = localDateKey(day.toISOString());
-      const value = orders.filter((order) => order.paymentStatus === 'Оплачено' && getAnalyticsOrderDate(order) && localDateKey(getAnalyticsOrderDate(order)!.toISOString()) === key).reduce((sum, order) => sum + order.amountUah, 0);
+      const value = orders.filter((order) => order.paymentStatus === 'Оплачено' && getAnalyticsRevenueDate(order) && localDateKey(getAnalyticsRevenueDate(order)!.toISOString()) === key).reduce((sum, order) => sum + order.amountUah, 0);
       return { label: new Intl.DateTimeFormat('uk-UA', { day: 'numeric', month: 'short' }).format(day), value };
     });
   }
@@ -556,8 +556,8 @@ function buildAnalyticsChartData(orders: OrderBoardItem[], period: AnalyticsPeri
       const start = getStartOfWeek(addDays(base, (index - 7) * 7));
       const end = getEndOfWeek(start);
       const value = orders.filter((order) => {
-        const orderDate = getAnalyticsOrderDate(order);
-        return order.paymentStatus === 'Оплачено' && orderDate && orderDate >= start && orderDate <= end;
+        const revenueDate = getAnalyticsRevenueDate(order);
+        return order.paymentStatus === 'Оплачено' && revenueDate && revenueDate >= start && revenueDate <= end;
       }).reduce((sum, order) => sum + order.amountUah, 0);
       const label = `${new Intl.DateTimeFormat('uk-UA', { day: 'numeric', month: 'short' }).format(start)}`;
       return { label, value };
@@ -567,7 +567,7 @@ function buildAnalyticsChartData(orders: OrderBoardItem[], period: AnalyticsPeri
     const month = addMonths(base, index - 5);
     const monthKey = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}`;
     const value = orders.filter((order) => {
-      const date = getAnalyticsOrderDate(order);
+      const date = getAnalyticsRevenueDate(order);
       return order.paymentStatus === 'Оплачено' && date && `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}` === monthKey;
     }).reduce((sum, order) => sum + order.amountUah, 0);
     return { label: new Intl.DateTimeFormat('uk-UA', { month: 'short', year: '2-digit' }).format(month), value };
@@ -595,7 +595,7 @@ function AnalyticsPage({ orders }: { orders: OrderBoardItem[] }) {
       return key >= rangeStart && key <= rangeEnd;
     };
     const inRange = (order: OrderBoardItem) => {
-      const value = getAnalyticsOrderDate(order);
+      const value = getAnalyticsRevenueDate(order);
       if (!value) return false;
       if (period === 'day') return localDateKey(value.toISOString()) === selectedDate;
       if (period === 'range') return isWithinRange(value);
