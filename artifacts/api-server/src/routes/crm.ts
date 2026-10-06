@@ -1,5 +1,5 @@
-import { and, desc, eq, ilike, lt, or, sql } from "drizzle-orm";
-import { Router, type IRouter } from "express";
+import { and, desc, eq, ilike, inArray, lt, or, sql } from "drizzle-orm";
+import { Router, type IRouter, type Response } from "express";
 import { z } from "zod";
 import {
   CreateCompanyBody,
@@ -35,14 +35,17 @@ import {
   UpdateTaskResponse,
 } from "@workspace/api-zod";
 import {
+  adminAuditLogsTable,
   activitiesTable,
   analyticsSettingsTable,
   companiesTable,
   contactsTable,
+  crmUserAccessTable,
   db,
   ordersTable,
   tasksTable,
 } from "@workspace/db";
+import type { AuthenticatedUser } from "../middleware/supabase-auth";
 import {
   NovaPoshtaTrackingError,
   queueNovaPoshtaOrderRefresh,
@@ -56,6 +59,29 @@ const autoPaidPaymentMethods = new Set(["промоплата", "лікпей", 
 function getCurrentManager(user?: { email?: string | null } | null): string {
   const email = user?.email?.trim();
   return email || "Не призначено";
+}
+
+function getAuthenticatedUser(res: Response): AuthenticatedUser {
+  return res.locals.authUser as AuthenticatedUser;
+}
+
+async function getManagerScope(user: AuthenticatedUser): Promise<string[] | null> {
+  if (["owner", "director", "accountant", "warehouse", "auditor"].includes(user.role)) return null;
+  const ownEmail = user.email?.trim().toLocaleLowerCase("en-US");
+  if (user.role !== "sales_manager" || !user.team) return ownEmail ? [ownEmail] : [];
+
+  const teamMembers = await db
+    .select({ email: crmUserAccessTable.email })
+    .from(crmUserAccessTable)
+    .where(and(eq(crmUserAccessTable.team, user.team), eq(crmUserAccessTable.isActive, true)));
+  return Array.from(new Set([
+    ...(ownEmail ? [ownEmail] : []),
+    ...teamMembers.map((member) => member.email.toLocaleLowerCase("en-US")),
+  ]));
+}
+
+function managerScopeCondition(emails: string[] | null) {
+  return emails === null ? undefined : inArray(sql`lower(${companiesTable.manager})`, emails);
 }
 
 const iso = (value: Date | null): string | null => value?.toISOString() ?? null;
@@ -147,11 +173,11 @@ async function addActivity(input: {
   return toActivity(row);
 }
 
-async function getCompanyDetail(companyId: number) {
+async function getCompanyDetail(companyId: number, managerScope: string[] | null = null) {
   const [company] = await db
     .select()
     .from(companiesTable)
-    .where(eq(companiesTable.id, companyId))
+    .where(and(eq(companiesTable.id, companyId), managerScopeCondition(managerScope)))
     .limit(1);
 
   if (!company) return null;
@@ -173,13 +199,22 @@ async function getCompanyDetail(companyId: number) {
 }
 
 router.get("/crm/summary", async (req, res): Promise<void> => {
+  const actor = getAuthenticatedUser(res);
+  const managerScope = await getManagerScope(actor);
+  const companyCondition = managerScopeCondition(managerScope);
   const [companies, orders, overdueTasks] = await Promise.all([
-    db.select({ id: companiesTable.id }).from(companiesTable),
-    db.select().from(ordersTable),
+    db.select({ id: companiesTable.id }).from(companiesTable).where(companyCondition),
+    db
+      .select({ order: ordersTable })
+      .from(ordersTable)
+      .leftJoin(companiesTable, eq(ordersTable.companyId, companiesTable.id))
+      .where(managerScope === null ? undefined : and(inArray(sql`lower(${companiesTable.manager})`, managerScope), sql`${ordersTable.companyId} IS NOT NULL`))
+      .then((rows) => rows.map(({ order }) => order)),
     db
       .select({ id: tasksTable.id })
       .from(tasksTable)
-      .where(and(eq(tasksTable.isCompleted, false), lt(tasksTable.dueAt, new Date()))),
+      .innerJoin(companiesTable, eq(tasksTable.companyId, companiesTable.id))
+      .where(and(eq(tasksTable.isCompleted, false), lt(tasksTable.dueAt, new Date()), companyCondition)),
   ]);
   const activeOrders = orders.filter((order) => order.stage !== completedStage);
   const response = GetCrmSummaryResponse.parse({
@@ -267,6 +302,7 @@ router.put("/crm/analytics-plan", async (req, res): Promise<void> => {
 });
 
 router.get("/crm/tasks", async (req, res): Promise<void> => {
+  const managerScope = await getManagerScope(getAuthenticatedUser(res));
   const rows = await db
     .select({
       task: tasksTable,
@@ -275,6 +311,7 @@ router.get("/crm/tasks", async (req, res): Promise<void> => {
     })
     .from(tasksTable)
     .innerJoin(companiesTable, eq(tasksTable.companyId, companiesTable.id))
+    .where(managerScopeCondition(managerScope))
     .orderBy(desc(tasksTable.createdAt));
 
   const response = rows.map(({ task, companyName, companyManager }) => ({
@@ -286,6 +323,8 @@ router.get("/crm/tasks", async (req, res): Promise<void> => {
 });
 
 router.get("/crm/orders", async (req, res): Promise<void> => {
+  const user = getAuthenticatedUser(res);
+  const managerScope = await getManagerScope(user);
   const rows = await db
     .select({
       order: ordersTable,
@@ -293,10 +332,22 @@ router.get("/crm/orders", async (req, res): Promise<void> => {
     })
     .from(ordersTable)
     .leftJoin(companiesTable, eq(ordersTable.companyId, companiesTable.id))
+    .where(managerScope === null ? undefined : and(
+      inArray(sql`lower(${companiesTable.manager})`, managerScope),
+      sql`${ordersTable.companyId} IS NOT NULL`,
+    ))
     .orderBy(desc(ordersTable.createdAt));
 
   const response = rows.map(({ order, companyName }) => ({
     ...toOrder(order),
+    ...(user.role === "warehouse" ? {
+      amountUah: 0,
+      comment: null,
+      paymentMethod: null,
+      paymentStatus: null,
+      paidAt: null,
+      marketingSource: null,
+    } : {}),
     companyName: companyName ?? order.customerName ?? "Без компанії",
   }));
   res.json(GetCrmOrdersResponse.parse(response));
@@ -308,6 +359,8 @@ router.post("/crm/orders", async (req, res): Promise<void> => {
     res.status(400).json(errorBody(parsed.error.message));
     return;
   }
+  const actor = getAuthenticatedUser(res);
+  const managerScope = await getManagerScope(actor);
   const input = parsed.data;
   const savedOrder = await db.transaction(async (tx) => {
     const customerName = input.customerName?.trim() || input.phone?.trim() || "";
@@ -320,7 +373,10 @@ router.post("/crm/orders", async (req, res): Promise<void> => {
         .select({ company: companiesTable })
         .from(contactsTable)
         .innerJoin(companiesTable, eq(contactsTable.companyId, companiesTable.id))
-        .where(sql`regexp_replace(coalesce(${contactsTable.phone}, ''), '[^0-9]', '', 'g') = ${phoneDigits}`)
+        .where(and(
+          sql`regexp_replace(coalesce(${contactsTable.phone}, ''), '[^0-9]', '', 'g') = ${phoneDigits}`,
+          managerScopeCondition(managerScope),
+        ))
         .limit(1);
       company = matchedContact?.company;
     }
@@ -328,7 +384,10 @@ router.post("/crm/orders", async (req, res): Promise<void> => {
       const [matchedCompany] = await tx
         .select()
         .from(companiesTable)
-        .where(sql`lower(trim(${companiesTable.name})) = ${customerName.toLocaleLowerCase("uk-UA")}`)
+        .where(and(
+          sql`lower(trim(${companiesTable.name})) = ${customerName.toLocaleLowerCase("uk-UA")}`,
+          managerScopeCondition(managerScope),
+        ))
         .limit(1);
       company = matchedCompany;
     }
@@ -402,6 +461,7 @@ router.post("/crm/orders", async (req, res): Promise<void> => {
 });
 
 router.get("/crm/activity", async (req, res): Promise<void> => {
+  const managerScope = await getManagerScope(getAuthenticatedUser(res));
   const rows = await db
     .select({
       activity: activitiesTable,
@@ -409,6 +469,7 @@ router.get("/crm/activity", async (req, res): Promise<void> => {
     })
     .from(activitiesTable)
     .innerJoin(companiesTable, eq(activitiesTable.companyId, companiesTable.id))
+    .where(managerScopeCondition(managerScope))
     .orderBy(desc(activitiesTable.createdAt));
 
   const response = rows.map(({ activity, companyName }) => ({
@@ -425,7 +486,9 @@ router.get("/companies", async (req, res): Promise<void> => {
     return;
   }
 
-  const currentManager = getCurrentManager(res.locals.authUser as { email?: string | null } | undefined);
+  const actor = getAuthenticatedUser(res);
+  const managerScope = await getManagerScope(actor);
+  const currentManager = getCurrentManager(actor);
   const search = parsed.data.q?.trim();
   const searchCondition = search
     ? or(
@@ -437,7 +500,7 @@ router.get("/companies", async (req, res): Promise<void> => {
     : undefined;
 
   const [companies, contacts, orders, tasks] = await Promise.all([
-    db.select().from(companiesTable).where(searchCondition).orderBy(desc(companiesTable.updatedAt)),
+    db.select().from(companiesTable).where(and(searchCondition, managerScopeCondition(managerScope))).orderBy(desc(companiesTable.updatedAt)),
     db.select({ companyId: contactsTable.companyId }).from(contactsTable),
     db.select().from(ordersTable).orderBy(desc(ordersTable.createdAt)),
     db.select().from(tasksTable),
@@ -479,7 +542,7 @@ router.get("/companies", async (req, res): Promise<void> => {
   const filtered = items.filter((company) => {
     switch (parsed.data.filter) {
       case "mine":
-        return company.manager === currentManager;
+        return company.manager.toLocaleLowerCase("en-US") === currentManager.toLocaleLowerCase("en-US");
       case "hasTasks":
         return company.nextTask !== null;
       case "overdue":
@@ -541,7 +604,10 @@ router.get("/companies/:companyId", async (req, res): Promise<void> => {
     res.status(400).json(errorBody(params.error.message));
     return;
   }
-  const detail = await getCompanyDetail(params.data.companyId);
+  const detail = await getCompanyDetail(
+    params.data.companyId,
+    await getManagerScope(getAuthenticatedUser(res)),
+  );
   if (!detail) {
     res.status(404).json(errorBody("Компанію не знайдено."));
     return;
@@ -561,15 +627,47 @@ router.patch("/companies/:companyId", async (req, res): Promise<void> => {
     res.status(400).json(errorBody("Назва компанії не може бути порожньою."));
     return;
   }
+  const actor = getAuthenticatedUser(res);
+  const managerScope = await getManagerScope(actor);
+  const [existingCompany] = await db
+    .select({ manager: companiesTable.manager })
+    .from(companiesTable)
+    .where(and(
+      eq(companiesTable.id, params.data.companyId),
+      managerScopeCondition(managerScope),
+    ))
+    .limit(1);
+  if (!existingCompany) {
+    res.status(404).json(errorBody("Компанію не знайдено."));
+    return;
+  }
+  if (
+    parsed.data.manager !== undefined &&
+    !["owner", "director", "sales_manager"].includes(actor.role)
+  ) {
+    res.status(403).json(errorBody("Перерозподіляти клієнтів може лише керівник продажів або вище."));
+    return;
+  }
+  if (
+    actor.role === "sales_manager" &&
+    parsed.data.manager !== undefined &&
+    !managerScope?.includes(parsed.data.manager.trim().toLocaleLowerCase("en-US"))
+  ) {
+    res.status(403).json(errorBody("Керівник продажів може передавати клієнтів лише менеджерам своєї команди."));
+    return;
+  }
   const [company] = await db
     .update(companiesTable)
     .set({
       ...parsed.data,
       ...(parsed.data.name !== undefined ? { name: parsed.data.name.trim() } : {}),
-      manager: getCurrentManager(res.locals.authUser as { email?: string | null } | undefined),
+      ...(parsed.data.manager !== undefined ? { manager: parsed.data.manager.trim() } : {}),
       updatedAt: new Date(),
     })
-    .where(eq(companiesTable.id, params.data.companyId))
+    .where(and(
+      eq(companiesTable.id, params.data.companyId),
+      managerScopeCondition(managerScope),
+    ))
     .returning();
   if (!company) {
     res.status(404).json(errorBody("Компанію не знайдено."));
@@ -581,7 +679,7 @@ router.patch("/companies/:companyId", async (req, res): Promise<void> => {
     title: "Оновлено картку компанії",
     createdBy: getCurrentManager(res.locals.authUser as { email?: string | null } | undefined),
   });
-  const detail = await getCompanyDetail(company.id);
+  const detail = await getCompanyDetail(company.id, managerScope);
   res.json(UpdateCompanyResponse.parse(detail));
 });
 
@@ -593,7 +691,11 @@ router.post("/companies/:companyId/contacts", async (req, res): Promise<void> =>
     res.status(400).json(errorBody(message));
     return;
   }
-  const [company] = await db.select().from(companiesTable).where(eq(companiesTable.id, params.data.companyId)).limit(1);
+  const managerScope = await getManagerScope(getAuthenticatedUser(res));
+  const [company] = await db.select().from(companiesTable).where(and(
+    eq(companiesTable.id, params.data.companyId),
+    managerScopeCondition(managerScope),
+  )).limit(1);
   if (!company) {
     res.status(404).json(errorBody("Компанію не знайдено."));
     return;
@@ -628,7 +730,11 @@ router.post("/companies/:companyId/orders", async (req, res): Promise<void> => {
     res.status(400).json(errorBody(message));
     return;
   }
-  const [company] = await db.select().from(companiesTable).where(eq(companiesTable.id, params.data.companyId)).limit(1);
+  const managerScope = await getManagerScope(getAuthenticatedUser(res));
+  const [company] = await db.select().from(companiesTable).where(and(
+    eq(companiesTable.id, params.data.companyId),
+    managerScopeCondition(managerScope),
+  )).limit(1);
   if (!company) {
     res.status(404).json(errorBody("Компанію не знайдено."));
     return;
@@ -685,6 +791,7 @@ router.patch("/orders/:orderId", async (req, res): Promise<void> => {
     res.status(400).json(errorBody(message));
     return;
   }
+  const managerScope = await getManagerScope(getAuthenticatedUser(res));
   const { arrivalDate, orderDate, ...orderUpdate } = parsed.data;
   const [existingOrder] = await db
     .select({
@@ -693,9 +800,14 @@ router.patch("/orders/:orderId", async (req, res): Promise<void> => {
       paymentMethod: ordersTable.paymentMethod,
       deliveryStatus: ordersTable.deliveryStatus,
       ttn: ordersTable.ttn,
+      companyId: ordersTable.companyId,
     })
     .from(ordersTable)
-    .where(eq(ordersTable.id, params.data.orderId))
+    .leftJoin(companiesTable, eq(ordersTable.companyId, companiesTable.id))
+    .where(and(
+      eq(ordersTable.id, params.data.orderId),
+      managerScope === null ? undefined : inArray(sql`lower(${companiesTable.manager})`, managerScope),
+    ))
     .limit(1);
   if (!existingOrder) {
     res.status(404).json(errorBody("Замовлення не знайдено."));
@@ -769,10 +881,23 @@ router.delete("/orders/:orderId", async (req, res): Promise<void> => {
     return;
   }
 
-  const [deleted] = await db
-    .delete(ordersTable)
-    .where(eq(ordersTable.id, params.data.orderId))
-    .returning({ id: ordersTable.id });
+  const actor = getAuthenticatedUser(res);
+  const deleted = await db.transaction(async (tx) => {
+    const [removed] = await tx
+      .delete(ordersTable)
+      .where(eq(ordersTable.id, params.data.orderId))
+      .returning({ id: ordersTable.id, code: ordersTable.code });
+    if (!removed) return null;
+    await tx.insert(adminAuditLogsTable).values({
+      actorUserId: actor.id,
+      actorEmail: actor.email,
+      action: "delete_order",
+      entityType: "order",
+      entityId: removed.id,
+      summary: `Видалено замовлення ${removed.code || `#${removed.id}`}`,
+    });
+    return removed;
+  });
   if (!deleted) {
     res.status(404).json(errorBody("Замовлення не знайдено."));
     return;
@@ -788,7 +913,11 @@ router.post("/companies/:companyId/tasks", async (req, res): Promise<void> => {
     res.status(400).json(errorBody(message));
     return;
   }
-  const [company] = await db.select().from(companiesTable).where(eq(companiesTable.id, params.data.companyId)).limit(1);
+  const managerScope = await getManagerScope(getAuthenticatedUser(res));
+  const [company] = await db.select().from(companiesTable).where(and(
+    eq(companiesTable.id, params.data.companyId),
+    managerScopeCondition(managerScope),
+  )).limit(1);
   if (!company) {
     res.status(404).json(errorBody("Компанію не знайдено."));
     return;
@@ -820,7 +949,17 @@ router.patch("/tasks/:taskId", async (req, res): Promise<void> => {
     res.status(400).json(errorBody(message));
     return;
   }
-  const [existing] = await db.select().from(tasksTable).where(eq(tasksTable.id, params.data.taskId)).limit(1);
+  const managerScope = await getManagerScope(getAuthenticatedUser(res));
+  const [existing] = await db
+    .select({ task: tasksTable })
+    .from(tasksTable)
+    .innerJoin(companiesTable, eq(tasksTable.companyId, companiesTable.id))
+    .where(and(
+      eq(tasksTable.id, params.data.taskId),
+      managerScopeCondition(managerScope),
+    ))
+    .limit(1)
+    .then((rows) => rows.map(({ task }) => task));
   if (!existing) {
     res.status(404).json(errorBody("Нагадування не знайдено."));
     return;
@@ -855,7 +994,11 @@ router.post("/companies/:companyId/notes", async (req, res): Promise<void> => {
     res.status(400).json(errorBody(message));
     return;
   }
-  const [company] = await db.select().from(companiesTable).where(eq(companiesTable.id, params.data.companyId)).limit(1);
+  const managerScope = await getManagerScope(getAuthenticatedUser(res));
+  const [company] = await db.select().from(companiesTable).where(and(
+    eq(companiesTable.id, params.data.companyId),
+    managerScopeCondition(managerScope),
+  )).limit(1);
   if (!company) {
     res.status(404).json(errorBody("Компанію не знайдено."));
     return;

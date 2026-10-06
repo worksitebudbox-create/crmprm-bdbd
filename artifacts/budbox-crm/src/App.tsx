@@ -5,7 +5,8 @@ import type { Session } from '@supabase/supabase-js';
 import {
   Activity, ArrowDownUp, ArrowRight, BarChart3, Bell, Building2, CalendarClock, Check, ChevronDown, Menu,
   ChevronRight, CircleAlert, ClipboardList, Copy, CreditCard, Edit3, FileText, Filter,
-  History, LayoutDashboard, Mail, MapPin, MessageCircle, Package, Plus, Search, Send,
+  Globe, History, LayoutDashboard, Mail, MapPin, MessageCircle, Package, Phone, Plus, Search, Send,
+  ShoppingCart,
   Settings2, ShieldCheck, Tag, Truck, UserRound, UsersRound, Wallet, X, CircleHelp, SlidersHorizontal, LogOut, LoaderCircle, RefreshCw
 } from 'lucide-react';
 import {
@@ -155,6 +156,7 @@ function initials(name: string) {
   return name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
 }
 function stageTone(stage: string) {
+  if (stage === DealStage.Новий_лід) return 'tone-new';
   if (stage === DealStage.Успішно_реалізовано) return 'tone-success';
   if (stage === DealStage['Рахунок_/_передоплата']) return 'tone-warm';
   if (stage === DealStage.Відправлено) return 'tone-blue';
@@ -185,7 +187,7 @@ function Modal({ title, subtitle, children, close }: { title: string; subtitle: 
 }
 function Skeleton({ className = '' }: { className?: string }) { return <div className={`skeleton ${className}`} />; }
 
-function CrmWorkspace({ userEmail, isAdmin, onSignOut }: { userEmail: string | null; isAdmin: boolean; onSignOut: () => Promise<void> }) {
+function CrmWorkspace({ userEmail, role, isAdmin, onSignOut }: { userEmail: string | null; role: CrmRole; isAdmin: boolean; onSignOut: () => Promise<void> }) {
   const qc = useQueryClient();
   const [, navigate] = useLocation();
   const [railOpen, setRailOpen] = useState(true);
@@ -261,15 +263,18 @@ function CrmWorkspace({ userEmail, isAdmin, onSignOut }: { userEmail: string | n
   const submitCompany = (edit = false) => {
     const payload = {
       name: form.name?.trim(), taxId: form.taxId || null, customerType: (form.customerType || CustomerType.Виконроб) as CompanyInput['customerType'],
-      city: form.city || null, manager: currentManager, warehouse: form.warehouse || null,
+      city: form.city || null, warehouse: form.warehouse || null,
       paymentForm: (form.paymentForm || PaymentForm.ПДВ) as CompanyInput['paymentForm'],
       creditLimitUah: Number(form.creditLimitUah || 0), paymentTermsDays: Number(form.paymentTermsDays || 0),
       discountPercent: Number(form.discountPercent || 0), priceTier: form.priceTier || null, source: form.source || null,
     };
     if (!payload.name) return flash('Вкажіть назву компанії', 'error');
     const done = (item: CompanyDetail) => { setSelectedId(item.id); localStorage.setItem('budbox-selected-company', String(item.id)); close(); void refresh(item.id); flash(edit ? 'Картку компанії оновлено' : 'Компанію додано до черги'); };
-    if (edit && activeId) updateCompany.mutate({ companyId: activeId, data: payload as CompanyUpdate }, { onSuccess: done, onError: () => flash('Не вдалося оновити компанію', 'error') });
-    else createCompany.mutate({ data: payload as CompanyInput }, { onSuccess: done, onError: () => flash('Не вдалося створити компанію', 'error') });
+    if (edit && activeId) updateCompany.mutate({
+      companyId: activeId,
+      data: { ...payload, ...(roleCanAssignClients(role) ? { manager: form.manager?.trim() || currentManager } : {}) } as CompanyUpdate,
+    }, { onSuccess: done, onError: () => flash('Не вдалося оновити компанію', 'error') });
+    else createCompany.mutate({ data: { ...payload, manager: currentManager } as CompanyInput }, { onSuccess: done, onError: () => flash('Не вдалося створити компанію', 'error') });
   };
   const submitClient = () => {
     const fullName = form.fullName?.trim();
@@ -380,7 +385,7 @@ function CrmWorkspace({ userEmail, isAdmin, onSignOut }: { userEmail: string | n
   useEffect(() => { document.documentElement.classList.toggle('bb-compact', compact); }, [compact]);
 
   const sorted = [...companies].sort((a, b) => sortNewest ? b.id - a.id : a.id - b.id);
-  const companyForm = { name: selected?.name ?? '', taxId: selected?.taxId ?? '', customerType: selected?.customerType ?? CustomerType.Виконроб, city: selected?.city ?? '', manager: currentManager, warehouse: selected?.warehouse ?? '', paymentForm: selected?.paymentForm ?? PaymentForm.ПДВ, creditLimitUah: String(selected?.creditLimitUah ?? 0), paymentTermsDays: String(selected?.paymentTermsDays ?? 0), discountPercent: String(selected?.discountPercent ?? 0), priceTier: selected?.priceTier ?? '', source: selected?.source ?? '' };
+  const companyForm = { name: selected?.name ?? '', taxId: selected?.taxId ?? '', customerType: selected?.customerType ?? CustomerType.Виконроб, city: selected?.city ?? '', manager: selected?.manager ?? currentManager, warehouse: selected?.warehouse ?? '', paymentForm: selected?.paymentForm ?? PaymentForm.ПДВ, creditLimitUah: String(selected?.creditLimitUah ?? 0), paymentTermsDays: String(selected?.paymentTermsDays ?? 0), discountPercent: String(selected?.discountPercent ?? 0), priceTier: selected?.priceTier ?? '', source: selected?.source ?? '' };
   const showCompanyModal = modal === 'company' || modal === 'edit';
   const title = modal === 'company' ? 'Нова компанія' : modal === 'client' ? 'Новий клієнт' : modal === 'edit' ? 'Редагування компанії' : modal === 'contact' ? 'Новий контакт' : modal === 'order' ? 'Нове замовлення' : modal === 'task' ? 'Нове завдання' : 'Нова нотатка';
 
@@ -388,13 +393,13 @@ function CrmWorkspace({ userEmail, isAdmin, onSignOut }: { userEmail: string | n
     <header className="topbar"><button data-testid="button-hamburger" className="icon-button hamburger" aria-label="Перемкнути навігацію" aria-expanded={window.innerWidth < 768 ? drawerOpen : railOpen} onClick={() => { if (window.innerWidth < 768) setDrawerOpen(!drawerOpen); else setRailOpen(!railOpen); }}><Menu size={19} /></button><div className="brand"><div className="brand-mark">B</div><div><strong>BUDBOX</strong><small>CRM / ПРОДАЖІ</small></div></div><div className="crumbs"><span>Продажі</span><ChevronRight size={13} /><b>Клієнти</b></div><div className="top-actions"><button aria-label="Сповіщення" aria-expanded={headerPanel === 'notifications'} data-testid="button-notifications" className="icon-button" onClick={() => setHeaderPanel(headerPanel === 'notifications' ? null : 'notifications')}><Bell size={17} />{overdueTasks.length > 0 && <i />}</button><button aria-label="Налаштування" aria-expanded={headerPanel === 'settings'} data-testid="button-settings" className="icon-button" onClick={() => setHeaderPanel(headerPanel === 'settings' ? null : 'settings')}><Settings2 size={17} /></button><button aria-label="Профіль і параметри" aria-expanded={headerPanel === 'profile'} className="profile profile-trigger" data-testid="button-profile-menu" onClick={() => setHeaderPanel(headerPanel === 'profile' ? null : 'profile')}><span>{userEmail?.slice(0, 2).toUpperCase() || 'BU'}</span><div><b>{userEmail || 'Робочий акаунт'}</b><small>Увійшли в CRM</small></div><ChevronDown size={14} /></button></div>
       {headerPanel && <div className="header-popover" data-testid={`panel-${headerPanel}`}><div className="popover-title">{headerPanel === 'notifications' ? 'Потребують уваги' : headerPanel === 'settings' ? 'Налаштування вигляду' : 'Робочий профіль'}<button className="icon-button" onClick={() => setHeaderPanel(null)}><X size={14} /></button></div>{headerPanel === 'notifications' ? taskBoard.isLoading ? <p>Завантаження завдань…</p> : taskBoard.isError ? <p>Не вдалося завантажити сповіщення.</p> : overdueTasks.length ? overdueTasks.slice(0, 5).map((task) => <button className="popover-row" key={task.id} onClick={() => { setHeaderPanel(null); navigate('/tasks'); }}><CircleAlert size={14} /><span><b>{task.title}</b><small>{task.companyName} · {date(task.dueAt)}</small></span></button>) : <p>Прострочених завдань немає.</p> : headerPanel === 'settings' ? <label className="density-control"><span><b>Компактний список</b><small>Менше вертикальних відступів у черзі</small></span><input data-testid="toggle-compact-density" type="checkbox" checked={compact} onChange={toggleCompact} /></label> : <><p>{userEmail || 'Робочий акаунт'}</p><button className="popover-row" onClick={() => { setHeaderPanel('settings'); }}><SlidersHorizontal size={14} /><span><b>Параметри робочого простору</b><small>Налаштування локальні для цього браузера</small></span></button><button className="popover-row auth-signout-row" onClick={() => { setHeaderPanel(null); void onSignOut().catch(() => flash('Не вдалося вийти з акаунта', 'error')); }}><LogOut size={14} /><span><b>Вийти з акаунта</b><small>Завершити поточний сеанс CRM</small></span></button></>}</div>}
     </header>
-    <div className={`workspace ${!railOpen ? 'rail-collapsed' : ''}`}><aside className={`rail ${drawerOpen ? 'drawer-open' : ''}`}><NavItems current="/" isAdmin={isAdmin} navigate={(path) => { navigate(path); setDrawerOpen(false); }} /></aside>{drawerOpen && <button className="drawer-scrim" aria-label="Закрити меню" onClick={() => setDrawerOpen(false)} />}
+    <div className={`workspace ${!railOpen ? 'rail-collapsed' : ''}`}><aside className={`rail ${drawerOpen ? 'drawer-open' : ''}`}><NavItems current="/" role={role} isAdmin={isAdmin} navigate={(path) => { navigate(path); setDrawerOpen(false); }} /></aside>{drawerOpen && <button className="drawer-scrim" aria-label="Закрити меню" onClick={() => setDrawerOpen(false)} />}
       <main className="main"><div className="page-heading"><div><div className="eyebrow"><span /> РОБОЧА ЧЕРГА ПРОДАЖІВ</div><h1>Клієнти <small data-testid="text-company-count">{summaryQuery.data?.totalCompanies ?? companies.length} клієнтів і компаній</small></h1></div><div className="client-heading-actions"><button data-testid="button-new-company" className="secondary-button" onClick={() => open('company')}><Plus size={16} /> <span>Нова компанія</span></button><button data-testid="button-new-client" className="primary-button" onClick={() => open('client', { customerType: retailCustomerType, manager: currentManager, paymentForm: PaymentForm.готівка })}><Plus size={16} /> <span>Новий клієнт</span></button></div></div>
         <div className="summary-strip">{summaryQuery.isLoading ? <><Skeleton /><Skeleton /><Skeleton /><Skeleton /></> : summaryQuery.isError ? <div className="summary-error">Не вдалося завантажити підсумок <button onClick={() => summaryQuery.refetch()}>Повторити</button></div> : <><div><span>КОМПАНІЇ</span><b data-testid="summary-companies">{summaryQuery.data?.totalCompanies ?? 0}</b></div><div><span>АКТИВНІ ЗАМОВЛЕННЯ</span><b data-testid="summary-orders">{summaryQuery.data?.activeOrders ?? 0}</b></div><div><span>ВОРОНКА</span><b data-testid="summary-pipeline">{money(summaryQuery.data?.pipelineValueUah ?? 0)}</b></div><div className="summary-alert"><span>ПРОСТРОЧЕНІ ЗАВДАННЯ</span><b data-testid="summary-overdue">{summaryQuery.data?.overdueTasks ?? 0}</b></div></>}</div>
          <div className="crm-shell"><section className="queue"><div className="queue-head"><div><h2>Черга клієнтів</h2><p>Фізичні особи, компанії та їхні замовлення</p></div><button data-testid="button-sort-companies" className="icon-button" onClick={() => setSortNewest((value) => !value)}><ArrowDownUp size={15} /></button><div className="search-wrap"><Search size={15} /><input data-testid="input-company-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Ім’я, код або місто" /></div><div className="filter-row">{filters.map((item) => <button data-testid={`filter-${item.value}`} key={item.value} className={filter === item.value ? 'selected' : ''} onClick={() => setFilter(item.value)}>{item.label}</button>)}</div></div><div className="queue-labels"><span>КЛІЄНТ / ТИП</span><span>ЕТАП / СУМА</span></div><div className="company-list bb-scroll">{companiesQuery.isLoading ? <>{[1, 2, 3, 4].map((item) => <div key={item} className="company-skeleton"><Skeleton /><Skeleton /><Skeleton /></div>)}</> : companiesQuery.isError ? <div className="empty-state"><CircleAlert size={22} /><b>Не вдалося завантажити клієнтів</b><button onClick={() => companiesQuery.refetch()}>Повторити</button></div> : sorted.length ? sorted.map((company) => <CompanyRow key={company.id} company={company} active={company.id === activeId} select={() => { setSelectedId(company.id); localStorage.setItem('budbox-selected-company', String(company.id)); setTab('Огляд'); }} />) : companies.length === 0 && !query && filter === GetCompaniesFilter.all ? <div className="empty-state"><UsersRound size={24} /><b>Клієнтів ще немає</b><span>Створіть картку клієнта або компанії.</span><button data-testid="button-create-first-company" onClick={() => open('client', { customerType: retailCustomerType, manager: currentManager, paymentForm: PaymentForm.готівка, channel: 'Instagram Direct' })}>Створити клієнта</button></div> : <div className="empty-state"><Search size={23} /><b>Нічого не знайдено</b><span>Змініть пошук або фільтр</span><button onClick={() => { setQuery(''); setFilter(GetCompaniesFilter.all); }}>Скинути фільтри</button></div>}</div><div className="queue-foot"><span>Показано {sorted.length} із {companies.length}</span><button onClick={() => { setQuery(''); setFilter(GetCompaniesFilter.all); }}>Скинути</button></div></section>
-          <section className="profile-pane bb-scroll">{!activeId ? <div className="profile-empty"><Building2 size={32} /><h2>Оберіть компанію</h2><p>Профіль клієнта з’явиться тут після вибору в черзі.</p></div> : detailQuery.isLoading ? <div className="loading-profile"><Skeleton className="wide" /><Skeleton className="hero-skeleton" /><Skeleton className="wide" /></div> : detailQuery.isError || !detail ? <div className="empty-state"><CircleAlert size={22} /><b>Профіль недоступний</b><button onClick={() => detailQuery.refetch()}>Повторити</button></div> : <div className="profile-content bb-enter"><div className="profile-header"><div className="profile-breadcrumb">КЛІЄНТИ <ChevronRight size={12} /> {detail.name}</div><div className="profile-main"><div className="company-icon"><Building2 size={23} /></div><div className="company-title"><div><h2 data-testid={`text-company-${detail.id}`}>{detail.name}</h2><span className="badge type-badge">{detail.customerType}</span></div><div className="company-meta"><button data-testid="button-copy-tax-id" onClick={() => copy(detail.taxId, 'Код')}><ShieldCheck size={13} /> {detail.taxId || 'Код не вказано'} <Copy size={11} /></button><span><MapPin size={13} />{detail.city || 'Місто не вказано'}</span><span className={`source-chip ${detail.source ? 'has-source' : ''}`}><Tag size={11} /> Маркетинг: {detail.source || 'Не вказано'}</span></div></div><div className="profile-buttons"><button data-testid="button-add-note" className="secondary-button" onClick={() => open('note')}><FileText size={14} /> Нотатка</button><button data-testid="button-add-task" className="secondary-button" onClick={() => open('task')}><Plus size={14} /> Завдання</button><button data-testid="button-edit-company" className="primary-button small" onClick={() => open('edit', companyForm)}><Edit3 size={14} /> Редагувати</button></div></div><div className="tabs">{(['Огляд', 'Історія', 'Контакти', 'Замовлення'] as const).map((item) => <button data-testid={`tab-${item}`} key={item} className={tab === item ? 'active' : ''} onClick={() => setTab(item)}>{item}{item === 'Історія' && <em>{detail.activity.length}</em>}{item === 'Контакти' && <em>{detail.contacts.length}</em>}</button>)}</div></div>{tab === 'Огляд' ? <Overview detail={detail} open={open} completeTask={completeTask} editOrder={editOrder} editCompany={() => open('edit', companyForm)} copy={copy} flash={flash} /> : tab === 'Історія' ? <ActivityTab detail={detail} open={open} /> : tab === 'Контакти' ? <ContactsTab detail={detail} open={open} /> : <OrdersTab detail={detail} open={open} editOrder={editOrder} deleteOrder={deleteOrder} refreshTracking={() => refresh(activeId ?? undefined)} />}</div>}</section></div></main></div>
+          <section className="profile-pane bb-scroll">{!activeId ? <div className="profile-empty"><Building2 size={32} /><h2>Оберіть компанію</h2><p>Профіль клієнта з’явиться тут після вибору в черзі.</p></div> : detailQuery.isLoading ? <div className="loading-profile"><Skeleton className="wide" /><Skeleton className="hero-skeleton" /><Skeleton className="wide" /></div> : detailQuery.isError || !detail ? <div className="empty-state"><CircleAlert size={22} /><b>Профіль недоступний</b><button onClick={() => detailQuery.refetch()}>Повторити</button></div> : <div className="profile-content bb-enter"><div className="profile-header"><div className="profile-breadcrumb">КЛІЄНТИ <ChevronRight size={12} /> {detail.name}</div><div className="profile-main"><div className="company-icon"><Building2 size={23} /></div><div className="company-title"><div><h2 data-testid={`text-company-${detail.id}`}>{detail.name}</h2><span className="badge type-badge">{detail.customerType}</span></div><div className="company-meta"><button data-testid="button-copy-tax-id" onClick={() => copy(detail.taxId, 'Код')}><ShieldCheck size={13} /> {detail.taxId || 'Код не вказано'} <Copy size={11} /></button><span><MapPin size={13} />{detail.city || 'Місто не вказано'}</span><span className={`source-chip ${detail.source ? 'has-source' : ''}`}><Tag size={11} /> Маркетинг: {detail.source || 'Не вказано'}</span></div></div><div className="profile-buttons"><button data-testid="button-add-note" className="secondary-button" onClick={() => open('note')}><FileText size={14} /> Нотатка</button><button data-testid="button-add-task" className="secondary-button" onClick={() => open('task')}><Plus size={14} /> Завдання</button><button data-testid="button-edit-company" className="primary-button small" onClick={() => open('edit', companyForm)}><Edit3 size={14} /> Редагувати</button></div></div><div className="tabs">{(['Огляд', 'Історія', 'Контакти', 'Замовлення'] as const).map((item) => <button data-testid={`tab-${item}`} key={item} className={tab === item ? 'active' : ''} onClick={() => setTab(item)}>{item}{item === 'Історія' && <em>{detail.activity.length}</em>}{item === 'Контакти' && <em>{detail.contacts.length}</em>}</button>)}</div></div>{tab === 'Огляд' ? <Overview detail={detail} open={open} completeTask={completeTask} editOrder={editOrder} editCompany={() => open('edit', companyForm)} copy={copy} flash={flash} /> : tab === 'Історія' ? <ActivityTab detail={detail} open={open} /> : tab === 'Контакти' ? <ContactsTab detail={detail} open={open} /> : <OrdersTab detail={detail} role={role} open={open} editOrder={editOrder} deleteOrder={deleteOrder} refreshTracking={() => refresh(activeId ?? undefined)} />}</div>}</section></div></main></div>
     {notice && <div className={`notice ${notice.kind}`} data-testid="status-notice"><Check size={15} /> {notice.text}</div>}
-    {showCompanyModal && <Modal title={title} subtitle="Дані будуть збережені у CRM через API" close={close}><CompanyForm form={form} setValue={setValue} onSubmit={() => submitCompany(modal === 'edit')} busy={busy} edit={modal === 'edit'} /></Modal>}
+    {showCompanyModal && <Modal title={title} subtitle="Дані будуть збережені у CRM через API" close={close}><CompanyForm form={form} setValue={setValue} onSubmit={() => submitCompany(modal === 'edit')} busy={busy} edit={modal === 'edit'} canAssignManager={roleCanAssignClients(role)} /></Modal>}
     {modal === 'client' && <Modal title="Новий клієнт" subtitle="Створіть окрему картку покупця та збережіть його телефон у контактах" close={close}><ClientForm form={form} setValue={setValue} onSubmit={submitClient} busy={busy} /></Modal>}
     {modal === 'contact' && <Modal title={title} subtitle={`Новий контакт для ${selected?.name ?? 'компанії'}`} close={close}><ContactForm form={form} setValue={setValue} onSubmit={submitContact} busy={busy} /></Modal>}
     {modal === 'order' && <Modal title={title} subtitle="Вкажіть етап, суму та ручні дані доставки" close={close}><OrderForm form={form} setValue={setValue} onSubmit={submitOrder} busy={busy} /></Modal>}
@@ -412,12 +417,58 @@ const navigation = [
   { path: '/warehouse', label: 'Склад', icon: Package, id: 'nav-warehouse' },
   { path: '/activity', label: 'Активність', icon: Activity, id: 'nav-activity' },
 ];
-function NavItems({ current, isAdmin, navigate }: { current: string; isAdmin: boolean; navigate?: (path: string) => void }) {
-  const items = isAdmin ? [...navigation, { path: '/admin', label: 'Адмінка', icon: ShieldCheck, id: 'nav-admin' }] : navigation;
+function NavItems({ current, role, isAdmin, navigate }: { current: string; role: CrmRole; isAdmin: boolean; navigate?: (path: string) => void }) {
+  const pageForPath: Record<string, string> = { '/': 'clients', '/overview': 'overview', '/tasks': 'tasks', '/orders': 'orders', '/analytics': 'analytics', '/warehouse': 'warehouse', '/activity': 'activity' };
+  const items = [
+    ...navigation.filter(({ path }) => roleCanAccessPage(role, pageForPath[path] ?? '')),
+    ...(isAdmin ? [{ path: '/admin', label: 'Адмінка', icon: ShieldCheck, id: 'nav-admin' }] : []),
+  ];
   return <>{items.map(({ path, label, icon: Icon, id }) => <Link key={path} href={path} aria-label={label} title={label} data-testid={id} className={`nav-link ${current === path ? 'active' : ''}`} onClick={() => navigate?.(path)}><Icon size={18} /><span>{label}</span></Link>)}</>;
 }
 
 type AnalyticsPeriod = 'day' | 'week' | 'month';
+type CrmRole = 'owner' | 'director' | 'sales_manager' | 'manager' | 'warehouse' | 'accountant' | 'auditor';
+type AdminUser = {
+  id: number;
+  userId: string;
+  email: string;
+  role: CrmRole;
+  team: string | null;
+  isActive: boolean;
+  updatedAt: string;
+};
+type AdminAuditItem = {
+  id: number;
+  actorEmail: string | null;
+  action: string;
+  entityType: string;
+  summary: string;
+  createdAt: string;
+};
+const crmRoleLabels: Record<CrmRole, string> = {
+  owner: 'Головний адміністратор',
+  director: 'Директор',
+  sales_manager: 'Керівник продажів',
+  manager: 'Менеджер',
+  warehouse: 'Комірник',
+  accountant: 'Бухгалтер',
+  auditor: 'Перегляд / аудитор',
+};
+const crmRoleDescriptions: Record<CrmRole, string> = {
+  owner: 'Повний доступ, команда, ролі, системні налаштування та аудит.',
+  director: 'Усі клієнти й показники компанії, замовлення, склад та розподіл клієнтів.',
+  sales_manager: 'Клієнти, завдання, замовлення й аналітика своєї команди; розподіл клієнтів у команді.',
+  manager: 'Власні клієнти, контакти, замовлення, завдання та аналітика.',
+  warehouse: 'Комплектація, залишки, відправлення й статуси доставки без фінансових сум.',
+  accountant: 'Перегляд сум і аналітики; зміна статусу оплати та номера видаткової.',
+  auditor: 'Лише перегляд журналу активності.',
+};
+function roleCanManageCrmData(role: CrmRole) {
+  return ['owner', 'director', 'sales_manager', 'manager'].includes(role);
+}
+function roleCanAssignClients(role: CrmRole) {
+  return ['owner', 'director', 'sales_manager'].includes(role);
+}
 
 function addDays(date: Date, offset: number) {
   const next = new Date(date);
@@ -595,7 +646,7 @@ function AnalyticsPage({ orders }: { orders: OrderBoardItem[] }) {
   </section>;
 }
 
-function GlobalPage({ page, userEmail, isAdmin, onSignOut }: { page: 'overview' | 'tasks' | 'orders' | 'warehouse' | 'activity' | 'analytics' | 'admin'; userEmail: string | null; isAdmin: boolean; onSignOut: () => Promise<void> }) {
+function GlobalPage({ page, userEmail, userId, role, isAdmin, onSignOut }: { page: 'overview' | 'tasks' | 'orders' | 'warehouse' | 'activity' | 'analytics' | 'admin'; userEmail: string | null; userId: string; role: CrmRole; isAdmin: boolean; onSignOut: () => Promise<void> }) {
   const qc = useQueryClient();
   const [, navigate] = useLocation();
   const [railOpen, setRailOpen] = useState(true);
@@ -644,6 +695,7 @@ function GlobalPage({ page, userEmail, isAdmin, onSignOut }: { page: 'overview' 
       order.companyName,
       order.phone,
       order.ttn,
+      order.invoiceNumber,
       String(order.amountUah),
       new Intl.NumberFormat('uk-UA').format(order.amountUah),
     ].filter(Boolean).join(' ').toLocaleLowerCase('uk-UA');
@@ -687,7 +739,12 @@ function GlobalPage({ page, userEmail, isAdmin, onSignOut }: { page: 'overview' 
   });
   const saveOrder = async (orderId: number, companyId: number | null, data: OrderUpdate) => {
     try {
-      await updateOrder.mutateAsync({ orderId, data });
+      const allowedData = role === 'accountant'
+        ? { paymentStatus: data.paymentStatus, invoiceNumber: data.invoiceNumber }
+        : role === 'warehouse'
+          ? { stage: data.stage, ttn: data.ttn, invoiceNumber: data.invoiceNumber, sender: data.sender, warehouse: data.warehouse, itemCount: data.itemCount }
+          : data;
+      await updateOrder.mutateAsync({ orderId, data: allowedData });
       await refresh(companyId ?? undefined);
       setNoticeIsError(false);
       setNotice('Зміни замовлення збережено');
@@ -768,23 +825,24 @@ function GlobalPage({ page, userEmail, isAdmin, onSignOut }: { page: 'overview' 
     <header className="topbar"><button data-testid="button-hamburger" className="icon-button hamburger" aria-label="Перемкнути навігацію" aria-expanded={window.innerWidth < 768 ? drawerOpen : railOpen} onClick={() => { if (window.innerWidth < 768) setDrawerOpen(!drawerOpen); else setRailOpen(!railOpen); }}><Menu size={19} /></button><div className="brand"><div className="brand-mark">B</div><div><strong>BUDBOX</strong><small>CRM / ПРОДАЖІ</small></div></div><div className="crumbs"><span>Продажі</span><ChevronRight size={13} /><b>{pageTitle}</b></div><div className="top-actions"><button aria-label="Сповіщення" aria-expanded={panel === 'notifications'} className="icon-button" data-testid="button-notifications" onClick={() => setPanel(panel === 'notifications' ? null : 'notifications')}><Bell size={17} />{overdueRows.length > 0 && <i />}</button><button aria-label="Налаштування" aria-expanded={panel === 'settings'} className="icon-button" data-testid="button-settings" onClick={() => setPanel(panel === 'settings' ? null : 'settings')}><Settings2 size={17} /></button><button aria-label="Профіль і параметри" aria-expanded={panel === 'profile'} className="profile profile-trigger" data-testid="button-profile-menu" onClick={() => setPanel(panel === 'profile' ? null : 'profile')}><span>{userEmail?.slice(0, 2).toUpperCase() || 'BU'}</span><div><b>{userEmail || 'Робочий акаунт'}</b><small>Увійшли в CRM</small></div><ChevronDown size={14} /></button></div>
       {panel && <div className="header-popover" data-testid={`panel-${panel}`}><div className="popover-title">{panel === 'notifications' ? 'Потребують уваги' : panel === 'settings' ? 'Налаштування вигляду' : 'Робочий профіль'}<button className="icon-button" onClick={() => setPanel(null)}><X size={14} /></button></div>{panel === 'notifications' ? tasks.isLoading ? <p>Завантаження завдань…</p> : tasks.isError ? <p>Не вдалося завантажити сповіщення.</p> : overdueRows.length ? overdueRows.slice(0, 5).map((task) => <button className="popover-row" key={task.id} onClick={() => { setPanel(null); navigate('/tasks'); }}><CircleAlert size={14} /><span><b>{task.title}</b><small>{task.companyName} · {date(task.dueAt)}</small></span></button>) : <p>Прострочених завдань немає.</p> : panel === 'settings' ? <label className="density-control"><span><b>Компактний список</b><small>Менше вертикальних відступів у списках</small></span><input data-testid="toggle-compact-density" type="checkbox" checked={compact} onChange={setDensity} /></label> : <><p>{userEmail || 'Робочий акаунт'}</p><button className="popover-row" onClick={() => setPanel('settings')}><SlidersHorizontal size={14} /><span><b>Налаштування вигляду</b><small>Зберігаються локально у цьому браузері</small></span></button><button className="popover-row auth-signout-row" onClick={() => { setPanel(null); void onSignOut().catch(() => { setNoticeIsError(true); setNotice('Не вдалося вийти з акаунта'); }); }}><LogOut size={14} /><span><b>Вийти з акаунта</b><small>Завершити поточний сеанс CRM</small></span></button></>}</div>}
     </header>
-    <div className={`workspace ${railOpen ? '' : 'rail-collapsed'}`}><aside className={`rail ${drawerOpen ? 'drawer-open' : ''}`}><NavItems current={page === 'overview' ? '/overview' : `/${page}`} isAdmin={isAdmin} navigate={() => setDrawerOpen(false)} /></aside>{drawerOpen && <button className="drawer-scrim" aria-label="Закрити меню" onClick={() => setDrawerOpen(false)} />}
-        <main className="main global-main"><div className="page-heading"><div><div className="eyebrow"><span /> РОБОЧИЙ ПРОСТІР ПРОДАЖІВ</div><h1 data-testid="text-page-title">{pageTitle}</h1></div>{page === 'tasks' ? <button data-testid="button-new-task" className="primary-button" onClick={() => openForm('task')}><Plus size={15} /> Нове завдання</button> : page === 'orders' ? <button data-testid="button-new-order" className="primary-button" onClick={() => openForm('order')}><Plus size={15} /> Нове замовлення</button> : page === 'activity' ? <button data-testid="button-new-activity" className="primary-button" onClick={() => openForm('note')}><Plus size={15} /> Додати запис</button> : null}</div>
+    <div className={`workspace ${railOpen ? '' : 'rail-collapsed'}`}><aside className={`rail ${drawerOpen ? 'drawer-open' : ''}`}><NavItems current={page === 'overview' ? '/overview' : `/${page}`} role={role} isAdmin={isAdmin} navigate={() => setDrawerOpen(false)} /></aside>{drawerOpen && <button className="drawer-scrim" aria-label="Закрити меню" onClick={() => setDrawerOpen(false)} />}
+        <main className="main global-main"><div className="page-heading"><div><div className="eyebrow"><span /> РОБОЧИЙ ПРОСТІР ПРОДАЖІВ</div><h1 data-testid="text-page-title">{pageTitle}</h1></div>{page === 'tasks' && roleCanManageCrmData(role) ? <button data-testid="button-new-task" className="primary-button" onClick={() => openForm('task')}><Plus size={15} /> Нове завдання</button> : page === 'orders' && roleCanManageCrmData(role) ? <button data-testid="button-new-order" className="primary-button" onClick={() => openForm('order')}><Plus size={15} /> Нове замовлення</button> : page === 'activity' && roleCanManageCrmData(role) ? <button data-testid="button-new-activity" className="primary-button" onClick={() => openForm('note')}><Plus size={15} /> Додати запис</button> : null}</div>
         {loadingForPage ? <div className="global-loading" data-testid="state-loading">{page === 'orders' ? <div className="orders-loading-grid">{[1, 2, 3, 4, 5, 6].map((n) => <div className="order-card-skeleton" key={n}><Skeleton /><Skeleton /><Skeleton /><Skeleton /></div>)}</div> : [1, 2, 3].map((n) => <div className="global-skeleton" key={n}><Skeleton /><Skeleton /><Skeleton /></div>)}</div> : errorForPage ? <div className="empty-state large" data-testid="state-error"><CircleAlert size={26} /><b>Дані тимчасово недоступні</b><span>Перевірте з’єднання та спробуйте ще раз.</span><button data-testid="button-retry-page" onClick={() => { void summary.refetch(); void tasks.refetch(); void orders.refetch(); void activity.refetch(); }}>Повторити</button></div> : null}
         {!loadingForPage && !errorForPage && page === 'overview' && <><div className="summary-strip">{[['КОМПАНІЇ', summary.data?.totalCompanies ?? 0], ['АКТИВНІ ЗАМОВЛЕННЯ', summary.data?.activeOrders ?? 0], ['ВОРОНКА', money(summary.data?.pipelineValueUah ?? 0)], ['ПРОСТРОЧЕНІ ЗАВДАННЯ', summary.data?.overdueTasks ?? 0]].map(([label, value]) => <div key={String(label)}><span>{label}</span><b data-testid={`overview-metric-${String(label).toLowerCase().replaceAll(' ', '-')}`}>{value}</b></div>)}</div><div className="global-grid"><section className="data-card"><SectionHeader icon={ClipboardList} title="Найближчі завдання" subtitle="Незавершені нагадування команди" action={<Link className="text-button" href="/tasks">Усі завдання</Link>} />{taskRows.filter((task) => !task.isCompleted).slice(0, 6).map((task) => <TaskLine task={task} toggle={toggleTask} key={task.id} />)}{!taskRows.filter((task) => !task.isCompleted).length && <EmptyPanel label="Незавершених завдань поки немає." />}</section><section className="data-card"><SectionHeader icon={History} title="Останні записи" subtitle="Нещодавні дії у клієнтських картках" action={<Link className="text-button" href="/activity">Уся активність</Link>} />{activityRows.slice(0, 6).map((item) => <ActivityBoardLine item={item} key={item.id} onCompany={(companyId) => { localStorage.setItem('budbox-selected-company', String(companyId)); navigate('/'); }} />)}{!activityRows.length && <EmptyPanel label="Активність з’явиться після записів у CRM." />}</section></div></>}
         {!loadingForPage && !errorForPage && page === 'tasks' && <section className="data-card global-table"><div className="table-head"><span>ЗАВДАННЯ / КОМПАНІЯ</span><span>ВІДПОВІДАЛЬНА</span><span>ТЕРМІН</span><span>СТАН</span></div>{taskRows.map((task) => <TaskLine task={task} toggle={toggleTask} key={task.id} />)}{!taskRows.length && <EmptyPanel label="Завдань ще немає. Створіть завдання та оберіть компанію." action={<button className="secondary-button" onClick={() => openForm('task')}>Створити завдання</button>} />}</section>}
         {!loadingForPage && !errorForPage && page === 'analytics' && <AnalyticsPage orders={orderRows} />}
         {!loadingForPage && !errorForPage && page === 'orders' && <>
           <section className="order-filter-panel" aria-label="Пошук і фільтри замовлень">
-            <label className="order-search-field"><Search size={16} /><input data-testid="input-order-search" value={orderSearch} onChange={(event) => setOrderSearch(event.target.value)} placeholder="Номер замовлення, ПІБ, телефон, сума або ТТН" /><kbd>Пошук</kbd></label>
+            <label className="order-search-field"><Search size={16} /><input data-testid="input-order-search" value={orderSearch} onChange={(event) => setOrderSearch(event.target.value)} placeholder={role === 'warehouse' ? 'Номер замовлення, ПІБ, телефон або ТТН' : '№ замовлення, видаткової, ПІБ, телефон, сума або ТТН'} /><kbd>Пошук</kbd></label>
             <div className="order-date-filters"><span>Дата замовлення</span><label><small>Від</small><input data-testid="input-order-date-from" type="date" value={orderDateFrom} max={orderDateTo || undefined} onChange={(event) => setOrderDateFrom(event.target.value)} /></label><span className="order-date-separator">—</span><label><small>До</small><input data-testid="input-order-date-to" type="date" value={orderDateTo} min={orderDateFrom || undefined} onChange={(event) => setOrderDateTo(event.target.value)} /></label>            <button type="button" className="order-filter-reset" onClick={() => { setOrderSearch(''); setOrderDateFrom(''); setOrderDateTo(''); setPaymentFilter('all'); }}>Очистити</button></div>
-            <div className="order-payment-filters" role="group" aria-label="Фільтр за статусом оплати">
+            {role !== 'warehouse' && <div className="order-payment-filters" role="group" aria-label="Фільтр за статусом оплати">
             <span>Оплата</span>
             <button type="button" className={paymentFilter === 'all' ? 'active' : ''} aria-pressed={paymentFilter === 'all'} onClick={() => setPaymentFilter('all')}>Усі <b>{orderRows.length}</b></button>
             <button type="button" className={paymentFilter === 'paid' ? 'active paid' : 'paid'} aria-pressed={paymentFilter === 'paid'} onClick={() => setPaymentFilter('paid')}>Оплачені <b>{orderRows.filter((order) => order.paymentStatus === 'Оплачено').length}</b></button>
             <button type="button" className={paymentFilter === 'unpaid' ? 'active unpaid' : 'unpaid'} aria-pressed={paymentFilter === 'unpaid'} onClick={() => setPaymentFilter('unpaid')}>Неоплачені <b>{orderRows.filter((order) => order.paymentStatus !== 'Оплачено').length}</b></button>
-            </div>
+            </div>}
           </section>
+          {role !== 'warehouse' && <>
           <div className="order-summary-strip">
             <div className="data-card"><span>ЗАРАХОВАНО ЗА ПЕРІОД</span><b data-testid="metric-orders-credited">{money(creditedAmount)}</b><small>{creditedOrders.length} оплат · зарахування лише зі статусом «Оплачено»</small></div>
             <div className="data-card"><span>ОЧІКУЮТЬ ОПЛАТИ</span><b data-testid="metric-orders-unpaid">{unpaidOrders.length} <small>· {money(unpaidAmount)}</small></b><small>Тільки замовлення зі статусом «Неоплачено»</small></div>
@@ -792,33 +850,88 @@ function GlobalPage({ page, userEmail, isAdmin, onSignOut }: { page: 'overview' 
           </div>
           <div className="order-period-hint"><CircleHelp size={14} /><span>Фільтр дат обмежує замовлення за датою створення; баланс рахується за датою фактичного переходу в статус «Оплачено».</span></div>
           {Object.keys(dailyCredits).length > 0 && <section className="order-credit-breakdown" aria-label="Зарахування за днями"><b>Зарахування за днями</b>{Object.entries(dailyCredits).sort(([left], [right]) => right.localeCompare(left)).map(([day, amount]) => <span key={day}><time>{shortDate(day)}</time><strong>{money(amount)}</strong></span>)}</section>}
+          </>}
           {orderRows.length > 0 ? searchedOrderRows.length > 0 ? <section className="orders-card-grid" aria-label="Список замовлень">
-            {searchedOrderRows.map((order, index) => <OrderCard key={order.id} order={order} marketingSource={order.marketingSource || (order.companyId === null ? null : companiesById.get(order.companyId)?.source)} index={index} open={() => setSelectedOrderId(order.id)} />)}
-          </section> : <section className="data-card"><EmptyPanel label="За цим пошуком, періодом і фільтром оплати замовлень не знайдено." action={<button className="secondary-button" onClick={() => { setOrderSearch(''); setOrderDateFrom(''); setOrderDateTo(''); setPaymentFilter('all'); }}>Очистити фільтри</button>} /></section> : <section className="data-card"><EmptyPanel label="Замовлень ще немає. Створіть перше замовлення." action={<button className="secondary-button" onClick={() => openForm('order')}>Створити замовлення</button>} /></section>}
+            {searchedOrderRows.map((order, index) => <OrderCard key={order.id} order={order} marketingSource={role === 'warehouse' ? null : order.marketingSource || (order.companyId === null ? null : companiesById.get(order.companyId)?.source)} index={index} role={role} editOrder={(id, data) => saveOrder(id, order.companyId, data)} open={() => setSelectedOrderId(order.id)} />)}
+          </section> : <section className="data-card"><EmptyPanel label="За цим пошуком, періодом і фільтром оплати замовлень не знайдено." action={<button className="secondary-button" onClick={() => { setOrderSearch(''); setOrderDateFrom(''); setOrderDateTo(''); setPaymentFilter('all'); }}>Очистити фільтри</button>} /></section> : <section className="data-card"><EmptyPanel label="Замовлень ще немає." action={roleCanManageCrmData(role) ? <button className="secondary-button" onClick={() => openForm('order')}>Створити замовлення</button> : undefined} /></section>}
         </>}
         {!loadingForPage && !errorForPage && page === 'warehouse' && <WarehousePage />}
-        {!loadingForPage && !errorForPage && page === 'activity' && <section className="data-card global-table"><div className="timeline global-timeline">{activityRows.map((item) => <ActivityBoardLine item={item} key={item.id} onCompany={(companyId) => { localStorage.setItem('budbox-selected-company', String(companyId)); navigate('/'); }} />)}</div>{!activityRows.length && <EmptyPanel label="Записів активності поки немає." action={<button className="secondary-button" data-testid="button-add-first-activity" onClick={() => openForm('note')}>Додати запис</button>} />}</section>}
-        {!loadingForPage && !errorForPage && page === 'admin' && <AdminPanel orders={orderRows} companyCount={companies.length} compact={compact} toggleCompact={setDensity} />}
+        {!loadingForPage && !errorForPage && page === 'activity' && <section className="data-card global-table"><div className="timeline global-timeline">{activityRows.map((item) => <ActivityBoardLine item={item} key={item.id} onCompany={role === 'auditor' ? undefined : (companyId) => { localStorage.setItem('budbox-selected-company', String(companyId)); navigate('/'); }} />)}</div>{!activityRows.length && <EmptyPanel label="Записів активності поки немає." action={roleCanManageCrmData(role) ? <button className="secondary-button" data-testid="button-add-first-activity" onClick={() => openForm('note')}>Додати запис</button> : undefined} />}</section>}
+        {!loadingForPage && !errorForPage && page === 'admin' && <AdminPanel orders={orderRows} companyCount={companies.length} compact={compact} toggleCompact={setDensity} currentUserId={userId} />}
       </main>
     </div>
     {notice && <button className={`notice ${noticeIsError ? 'error' : 'success'}`} data-testid="status-notice" onClick={() => setNotice('')}>{noticeIsError ? <CircleAlert size={15} /> : <Check size={15} />} {notice}</button>}
     {formKind && <Modal title={formKind === 'task' ? 'Нове завдання' : formKind === 'order' ? 'Нове замовлення' : 'Новий запис активності'} subtitle={formKind === 'task' ? 'Оберіть компанію для нагадування' : formKind === 'order' ? 'Внесіть дані покупця, відправлення та оплати' : 'Зафіксуйте нотатку в історії вибраної компанії'} close={() => setFormKind(null)}><form className="form-grid" onSubmit={submit}>{formKind !== 'order' && <Field label="Компанія" wide><select data-testid="select-global-company" required value={form.companyId} onChange={(event) => setForm({ ...form, companyId: event.target.value })}><option value="">Оберіть компанію</option>{companies.map((company) => <option value={company.id} key={company.id}>{company.name}</option>)}</select></Field>}{formKind === 'task' ? <><Field label="Що потрібно зробити?" wide><input data-testid="input-global-task-title" required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></Field><Field label="Термін"><input type="datetime-local" value={form.dueAt} onChange={(event) => setForm({ ...form, dueAt: event.target.value })} /></Field><Field label="Відповідальна"><input value={form.assignee} onChange={(event) => setForm({ ...form, assignee: event.target.value })} /></Field></> : formKind === 'order' ? <GlobalOrderFields form={form} setValue={setValue} /> : <><Field label="Заголовок" wide><input data-testid="input-global-activity-title" required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></Field><Field label="Деталі" wide><textarea data-testid="input-global-activity-details" rows={4} value={form.details} onChange={(event) => setForm({ ...form, details: event.target.value })} /></Field></>}<div className="form-actions"><button className="primary-button" data-testid="button-submit-global" disabled={createTask.isPending || createStandaloneOrder.isPending || createNote.isPending}>{createTask.isPending || createStandaloneOrder.isPending || createNote.isPending ? 'Збереження…' : 'Зберегти'}</button></div></form></Modal>}
-    {selectedOrder && <OrderDetailModal order={selectedOrder} company={selectedOrder.companyId === null ? undefined : companiesById.get(selectedOrder.companyId)} save={saveOrder} remove={deleteOrder} refreshTracking={() => refresh(selectedOrder.companyId ?? undefined)} close={() => setSelectedOrderId(null)} />}
+    {selectedOrder && <OrderDetailModal order={selectedOrder} company={selectedOrder.companyId === null ? undefined : companiesById.get(selectedOrder.companyId)} role={role} save={saveOrder} remove={deleteOrder} refreshTracking={() => refresh(selectedOrder.companyId ?? undefined)} close={() => setSelectedOrderId(null)} />}
   </div>;
 }
-function AdminPanel({ orders, companyCount, compact, toggleCompact }: {
+function AdminPanel({ orders, companyCount, compact, toggleCompact, currentUserId }: {
   orders: OrderBoardItem[];
   companyCount: number;
   compact: boolean;
   toggleCompact: () => void;
+  currentUserId: string;
 }) {
-  const [section, setSection] = useState<'dashboard' | 'settings'>('dashboard');
+  const [section, setSection] = useState<'dashboard' | 'users' | 'audit' | 'settings'>('dashboard');
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [audit, setAudit] = useState<AdminAuditItem[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [loadingAudit, setLoadingAudit] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [savingUserId, setSavingUserId] = useState('');
+  const [notice, setNotice] = useState('');
+  const loadUsers = async () => {
+    setLoadingUsers(true);
+    setLoadError('');
+    try {
+      setUsers(await customFetch<AdminUser[]>('/api/admin/users'));
+    } catch {
+      setLoadError('Не вдалося завантажити команду. Перевірте з’єднання і повторіть спробу.');
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
+  const loadAudit = async () => {
+    setLoadingAudit(true);
+    setLoadError('');
+    try {
+      setAudit(await customFetch<AdminAuditItem[]>('/api/admin/audit?limit=100'));
+    } catch {
+      setLoadError('Не вдалося завантажити журнал аудиту.');
+    } finally {
+      setLoadingAudit(false);
+    }
+  };
+  const updateUser = async (user: AdminUser, update: Partial<Pick<AdminUser, 'role' | 'team' | 'isActive'>>) => {
+    setSavingUserId(user.userId);
+    setNotice('');
+    setLoadError('');
+    try {
+      const updated = await customFetch<AdminUser>(`/api/admin/users/${encodeURIComponent(user.userId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(update),
+      });
+      setUsers((current) => current.map((item) => item.userId === updated.userId ? updated : item));
+      setNotice(`Доступ для ${updated.email} оновлено.`);
+    } catch {
+      setLoadError(`Не вдалося змінити доступ для ${user.email}. Спробуйте ще раз.`);
+    } finally {
+      setSavingUserId('');
+    }
+  };
+  useEffect(() => {
+    if (section === 'users') void loadUsers();
+    if (section === 'audit') void loadAudit();
+  }, [section]);
   const paid = orders.filter((order) => order.paymentStatus === 'Оплачено');
   const unpaid = orders.filter((order) => !order.paymentStatus || order.paymentStatus === 'Неоплачено');
   const paidToday = paid.filter((order) => localDateKey(order.paidAt) === localDateInput()).reduce((sum, order) => sum + order.amountUah, 0);
   return <div className="admin-page">
     <div className="admin-tabs" role="tablist" aria-label="Розділи адмін-панелі">
       <button type="button" role="tab" aria-selected={section === 'dashboard'} className={section === 'dashboard' ? 'active' : ''} onClick={() => setSection('dashboard')}><LayoutDashboard size={14} /> Панель</button>
+      <button type="button" role="tab" aria-selected={section === 'users'} className={section === 'users' ? 'active' : ''} onClick={() => setSection('users')}><UsersRound size={14} /> Команда й ролі</button>
+      <button type="button" role="tab" aria-selected={section === 'audit'} className={section === 'audit' ? 'active' : ''} onClick={() => setSection('audit')}><History size={14} /> Журнал аудиту</button>
       <button type="button" role="tab" aria-selected={section === 'settings'} className={section === 'settings' ? 'active' : ''} onClick={() => setSection('settings')}><SlidersHorizontal size={14} /> Налаштування</button>
     </div>
     {section === 'dashboard' ? <>
@@ -828,11 +941,47 @@ function AdminPanel({ orders, companyCount, compact, toggleCompact }: {
         <div className="data-card"><span>ОЧІКУЮТЬ ОПЛАТИ</span><b>{unpaid.length}</b><small>{money(unpaid.reduce((sum, order) => sum + order.amountUah, 0))}</small></div>
         <div className="data-card"><span>ЗАРАХОВАНО СЬОГОДНІ</span><b>{money(paidToday)}</b><small>{paid.filter((order) => localDateKey(order.paidAt) === localDateInput()).length} оплачених замовлень</small></div>
       </div>
-      <section className="data-card admin-access-note"><ShieldCheck size={18} /><div><b>Керування доступом</b><p>Головний адміністратор визначається на API за перевіреною поштою. Керування ролями команди буде додано наступним етапом.</p></div></section>
-    </> : <section className="data-card admin-settings-card">
+      <section className="data-card admin-access-note"><ShieldCheck size={18} /><div><b>Керування доступом</b><p>Призначайте ролі працівникам і вимикайте доступ до CRM. Головний адміністратор захищений від зміни ролі та блокування.</p></div></section>
+    </> : section === 'users' ? <section className="data-card admin-settings-card">
+      <SectionHeader icon={UsersRound} title="Команда й ролі" subtitle="Доступні акаунти, які вже входили в CRM" />
+      <p className="admin-help-text">Новий співробітник з’явиться тут після першого входу через налаштовану авторизацію. Призначте йому роль та команду; тимчасово заблокований акаунт не зможе працювати в CRM.</p>
+      <details className="admin-role-guide"><summary>Опис доступів за ролями</summary><div>{Object.entries(crmRoleDescriptions).map(([role, description]) => <p key={role}><b>{crmRoleLabels[role as CrmRole]}:</b> {description}</p>)}</div></details>
+      {loadError && <p className="admin-error" role="alert">{loadError}</p>}
+      {notice && <p className="admin-success" role="status">{notice}</p>}
+      {loadingUsers ? <div className="admin-loading">Завантаження команди…</div> : users.length ? <div className="admin-user-list">
+        <div className="admin-user-head"><span>КОРИСТУВАЧ</span><span>РОЛЬ</span><span>КОМАНДА</span><span>ДОСТУП</span></div>
+        {users.map((user) => {
+          const isProtectedOwner = user.role === 'owner';
+          const isSelf = user.userId === currentUserId;
+          const disabled = isProtectedOwner || isSelf || savingUserId === user.userId;
+          return <div className="admin-user-row" key={user.userId}>
+            <div className="admin-user-identity"><b>{user.email}</b><small>{isProtectedOwner ? 'Захищений власник CRM' : `Оновлено ${date(user.updatedAt)}`}</small></div>
+            <select aria-label={`Роль ${user.email}`} value={user.role} disabled={disabled} onChange={(event) => void updateUser(user, { role: event.target.value as CrmRole })}>
+              {Object.entries(crmRoleLabels).filter(([role]) => role !== 'owner').map(([role, label]) => <option key={role} value={role}>{label}</option>)}
+              {user.role === 'owner' && <option value="owner">{crmRoleLabels.owner}</option>}
+            </select>
+            <input aria-label={`Команда ${user.email}`} defaultValue={user.team ?? ''} disabled={disabled || user.role === 'owner'} placeholder="Назва команди" maxLength={100} onBlur={(event) => {
+              const value = event.currentTarget.value.trim() || null;
+              if (value !== user.team) void updateUser(user, { team: value });
+            }} />
+            <button className={user.isActive ? 'admin-access-toggle active' : 'admin-access-toggle'} type="button" disabled={disabled} onClick={() => void updateUser(user, { isActive: !user.isActive })}>
+              {savingUserId === user.userId ? 'Збереження…' : user.isActive ? 'Активний' : 'Заблокований'}
+            </button>
+          </div>;
+        })}
+      </div> : !loadError ? <EmptyPanel label="Ще немає інших акаунтів. Після першого входу співробітника можна буде призначити йому роль." /> : null}
+      <div className="admin-inline-actions"><button type="button" className="secondary-button" onClick={() => void loadUsers()} disabled={loadingUsers}>Оновити список</button></div>
+    </section> : section === 'audit' ? <section className="data-card admin-settings-card">
+      <SectionHeader icon={History} title="Журнал аудиту" subtitle="Зміни доступів і критичні операції в CRM" />
+      {loadError && <p className="admin-error" role="alert">{loadError}</p>}
+      {loadingAudit ? <div className="admin-loading">Завантаження журналу…</div> : audit.length ? <div className="admin-audit-list">
+        {audit.map((item) => <div className="admin-audit-row" key={item.id}><span><b>{item.summary}</b><small>{item.actorEmail || 'Системна подія'} · {item.action}</small></span><time>{date(item.createdAt)}</time></div>)}
+      </div> : !loadError ? <EmptyPanel label="Записів аудиту поки немає." /> : null}
+      <div className="admin-inline-actions"><button type="button" className="secondary-button" onClick={() => void loadAudit()} disabled={loadingAudit}>Оновити журнал</button></div>
+    </section> : <section className="data-card admin-settings-card">
       <SectionHeader icon={SlidersHorizontal} title="Налаштування CRM" subtitle="Параметри вигляду для цього браузера" />
       <label className="density-control"><span><b>Компактні списки</b><small>Зменшити відступи у списках клієнтів і картках</small></span><input data-testid="toggle-admin-compact" type="checkbox" checked={compact} onChange={toggleCompact} /></label>
-      <div className="admin-settings-note"><CircleHelp size={14} /><span>Користувачів, ролі та доступи можна буде налаштувати після додавання авторизації.</span></div>
+      <div className="admin-settings-note"><CircleHelp size={14} /><span>Секрети інтеграцій та системні параметри залишаються лише в налаштуваннях сервера.</span></div>
     </section>}
   </div>;
 }
@@ -861,20 +1010,49 @@ function NovaPoshtaStatus({ status, ttn, compact = false }: {
     </div>
   </div>;
 }
-function OrderCard({ order, marketingSource, index = 0, open }: { order: OrderBoardItem; marketingSource?: string | null; index?: number; open: () => void }) {
+function OrderCard({ order, marketingSource, index = 0, role, editOrder, open }: { order: OrderBoardItem; marketingSource?: string | null; index?: number; role: CrmRole; editOrder: (id: number, data: OrderUpdate) => Promise<void>; open: () => void }) {
+  const [savingStatus, setSavingStatus] = useState(false);
   const paymentStatus = derivePaymentStatus({ paymentMethod: order.paymentMethod, paymentStatus: order.paymentStatus, deliveryStatus: order.deliveryStatus });
   const delivered = isDeliveredStatus(order.deliveryStatus);
-  return <button type="button" className={`order-card ${orderDeliveryTone(order.deliveryStatus, order.ttn)} bb-enter`} style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }} data-testid={`row-order-${order.id}`} onClick={open}>
+  const normalizedSource = marketingSource?.trim() || (order.paymentMethod?.toLocaleLowerCase('uk-UA').includes('пром') ? 'Пром' : '');
+  const sourceKind = /пром|prom/i.test(normalizedSource) ? 'prom' : /сайт|website|web|онлайн.?магазин/i.test(normalizedSource) ? 'website' : /телефон|дзвін|phone|call/i.test(normalizedSource) ? 'phone' : 'other';
+  const SourceIcon = sourceKind === 'prom' ? ShoppingCart : sourceKind === 'website' ? Globe : sourceKind === 'phone' ? Phone : Tag;
+  const sourceLabel = sourceKind === 'prom' ? 'Пром' : sourceKind === 'website' ? 'Сайт' : sourceKind === 'phone' ? 'Телефон' : normalizedSource;
+  const canChangeStage = roleCanManageCrmData(role) || role === 'warehouse';
+  const canChangePayment = (roleCanManageCrmData(role) || role === 'accountant') && !isAutoPaidPaymentMethod(order.paymentMethod);
+  const changeStage = async (stage: string) => {
+    if (stage === order.stage) return;
+    setSavingStatus(true);
+    try {
+      await editOrder(order.id, { stage: stage as DealStage });
+    } catch {
+      // editOrder already reports the failed save through the workspace notice.
+    } finally {
+      setSavingStatus(false);
+    }
+  };
+  const changePaymentStatus = async (status: string) => {
+    if (status === paymentStatus) return;
+    setSavingStatus(true);
+    try {
+      await editOrder(order.id, { paymentStatus: status });
+    } catch {
+      // editOrder already reports the failed save through the workspace notice.
+    } finally {
+      setSavingStatus(false);
+    }
+  };
+  return <article tabIndex={0} aria-label={`${order.code || `Замовлення #${order.id}`}. Відкрити деталі клавішею Enter`} role="group" className={`order-card ${orderDeliveryTone(order.deliveryStatus, order.ttn)} bb-enter`} style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }} data-testid={`row-order-${order.id}`} onClick={open} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); open(); } }}>
     <span className="order-card-top"><span className="order-card-code">{order.code || `Замовлення #${order.id}`}</span><span className="order-card-date"><CalendarClock size={13} />{shortDate(order.orderDate || order.createdAt)}</span></span>
     <span className="order-card-customer">{order.customerName || order.companyName}</span>
     <span className="order-card-phone">{order.phone || 'Телефон не вказано'}</span>
-    <span className="order-card-details"><span><small>Сума замовлення</small><b>{money(order.amountUah)}</b></span><span><small>Спосіб оплати</small><b>{order.paymentMethod || 'Не вказано'}</b></span></span>
-    {marketingSource && <span className="marketing-chip"><Tag size={10} />{marketingSource}</span>}
-    <span className="order-card-badges"><span className={`badge ${paymentStatus === 'Оплачено' ? 'tone-success' : 'tone-warm'}`}>{paymentStatus}</span><span className={`badge ${stageTone(order.stage)}`}>{orderStageLabels[order.stage] ?? order.stage}</span>{delivered && <span className="badge tone-success">Доставлено</span>}</span>
+    {role !== 'warehouse' && <span className="order-card-details"><span><small>Сума замовлення</small><b>{money(order.amountUah)}</b></span><span><small>Спосіб оплати</small><b>{order.paymentMethod || 'Не вказано'}</b></span></span>}
+    {role !== 'warehouse' && normalizedSource && <span className={`order-source-badge source-${sourceKind}`} title={`Джерело: ${normalizedSource}`}><SourceIcon size={12} /><span>{sourceLabel}</span></span>}
+    <span className="order-card-badges">{role !== 'warehouse' && (canChangePayment ? <select aria-label={`Оплата замовлення ${order.code || order.id}`} className={`order-status-select ${paymentStatus === 'Оплачено' ? 'tone-success' : paymentStatus === 'Неоплачено' ? 'tone-danger' : 'tone-warm'}`} value={paymentStatus} disabled={savingStatus} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onChange={(event) => void changePaymentStatus(event.target.value)}>{orderStatuses.map((status) => <option key={status} value={status}>{status}</option>)}</select> : <span className={`badge ${paymentStatus === 'Оплачено' ? 'tone-success' : paymentStatus === 'Неоплачено' ? 'tone-danger' : 'tone-warm'}`}>{paymentStatus}</span>)}{canChangeStage ? <select aria-label={`Статус замовлення ${order.code || order.id}`} className={`order-status-select ${stageTone(order.stage)}`} value={order.stage} disabled={savingStatus} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onChange={(event) => void changeStage(event.target.value)}>{stages.map((stage) => <option key={stage} value={stage}>{orderStageLabels[stage] ?? stage}</option>)}</select> : <span className={`badge ${stageTone(order.stage)}`}>{orderStageLabels[order.stage] ?? order.stage}</span>}{delivered && <span className="badge tone-success">Доставлено</span>}</span>
     <NovaPoshtaStatus status={order.deliveryStatus} ttn={order.ttn} compact />
     {order.arrivalDate && <span className="order-arrival-time"><CalendarClock size={12} /> Прибуло: {date(order.arrivalDate)}</span>}
     <span className="order-card-bottom"><span>{order.paidAt && paymentStatus === 'Оплачено' ? <>Зараховано {shortDate(order.paidAt)}</> : 'Відкрити для деталей доставки'}</span><span>Відкрити <ArrowRight size={13} /></span></span>
-  </button>;
+  </article>;
 }
 
 type OrderDraft = {
@@ -909,9 +1087,10 @@ function orderDraft(order: OrderBoardItem): OrderDraft {
     paymentStatus: order.paymentStatus || 'Неоплачено',
   };
 }
-function OrderDetailModal({ order, company, save, remove, refreshTracking, close }: {
+function OrderDetailModal({ order, company, role, save, remove, refreshTracking, close }: {
   order: OrderBoardItem;
   company: CompanyListItem | undefined;
+  role: CrmRole;
   save: (id: number, companyId: number | null, data: OrderUpdate) => Promise<void>;
   remove: (id: number) => Promise<void>;
   refreshTracking: () => Promise<unknown>;
@@ -924,6 +1103,14 @@ function OrderDetailModal({ order, company, save, remove, refreshTracking, close
   const [refreshingTracking, setRefreshingTracking] = useState(false);
   const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
   const [error, setError] = useState('');
+  const editableFields = role === 'accountant'
+    ? new Set(['invoiceNumber', 'paymentStatus'])
+    : role === 'warehouse'
+      ? new Set(['stage', 'ttn', 'invoiceNumber', 'sender', 'warehouse', 'itemCount'])
+      : new Set(['orderDate', 'stage', 'amountUah', 'ttn', 'invoiceNumber', 'comment', 'sender', 'warehouse', 'customerName', 'phone', 'itemCount', 'paymentMethod', 'paymentStatus']);
+  const canEdit = editableFields.size > 0;
+  const canDelete = role === 'owner' || role === 'director';
+  const disabledField = (field: string) => !editing || !editableFields.has(field);
   useEffect(() => {
     if (!editing) setDraft(orderDraft(order));
   }, [order, editing]);
@@ -940,14 +1127,25 @@ function OrderDetailModal({ order, company, save, remove, refreshTracking, close
   const submitEdit = async (event: FormEvent) => {
     event.preventDefault();
     const amountUah = Number(draft.amountUah);
-    if (!Number.isFinite(amountUah) || amountUah < 0) {
+    if (!['accountant', 'warehouse'].includes(role) && (!Number.isFinite(amountUah) || amountUah < 0)) {
       setError('Вкажіть коректну суму замовлення.');
       return;
     }
     setSaving(true);
     setError('');
     try {
-      await save(order.id, order.companyId, {
+      const update: OrderUpdate = role === 'accountant'
+        ? { paymentStatus: draft.paymentStatus || null, invoiceNumber: draft.invoiceNumber.trim() || null }
+        : role === 'warehouse'
+          ? {
+            stage: draft.stage as DealStage,
+            ttn: draft.ttn.trim() || null,
+            invoiceNumber: draft.invoiceNumber.trim() || null,
+            sender: draft.sender || null,
+            warehouse: draft.warehouse || null,
+            itemCount: draft.itemCount ? Number(draft.itemCount) : null,
+          }
+          : {
         orderDate: draft.orderDate || null,
         stage: draft.stage as DealStage,
         amountUah,
@@ -961,7 +1159,8 @@ function OrderDetailModal({ order, company, save, remove, refreshTracking, close
         itemCount: draft.itemCount ? Number(draft.itemCount) : null,
         paymentMethod: draft.paymentMethod || null,
         paymentStatus: draft.paymentStatus || null,
-      });
+          };
+      await save(order.id, order.companyId, update);
       setEditing(false);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Не вдалося зберегти замовлення.');
@@ -999,36 +1198,36 @@ function OrderDetailModal({ order, company, save, remove, refreshTracking, close
     }
   };
   return <>
-    <Modal title={order.code || `Замовлення #${order.id}`} subtitle="Деталі замовлення, оплати та доставки" close={close}>
+    <Modal title={order.code || `Замовлення #${order.id}`} subtitle={role === 'warehouse' ? 'Дані для комплектації та відправлення' : 'Деталі замовлення, оплати та доставки'} close={close}>
     <form className="order-detail-modal" onSubmit={(event) => void submitEdit(event)}>
-      <div className="order-detail-summary"><span><small>Клієнт</small><b>{order.customerName || order.companyName}</b><span>{order.phone || company?.name || 'Телефон не вказано'}</span></span><strong>{money(order.amountUah)}</strong></div>
+      <div className="order-detail-summary"><span><small>Клієнт</small><b>{order.customerName || order.companyName}</b><span>{order.phone || company?.name || 'Телефон не вказано'}</span></span>{role !== 'warehouse' && <strong>{money(order.amountUah)}</strong>}</div>
       <div className="order-detail-fields">
-        <Field label="Дата замовлення"><input type="date" value={draft.orderDate} disabled={!editing} onChange={(event) => setDraftValue('orderDate', event.target.value)} /></Field>
-        <Field label="Сума замовлення, ₴"><input type="number" min="0" step="0.01" required value={draft.amountUah} disabled={!editing} onChange={(event) => setDraftValue('amountUah', event.target.value)} /></Field>
-        <Field label="ПІБ клієнта"><input value={draft.customerName} disabled={!editing} onChange={(event) => setDraftValue('customerName', event.target.value)} /></Field>
-        <Field label="Телефон"><input type="tel" value={draft.phone} disabled={!editing} onChange={(event) => setDraftValue('phone', event.target.value)} /></Field>
-        <Field label="Відправник"><select value={draft.sender} disabled={!editing} onChange={(event) => setDraftValue('sender', event.target.value)}>{order.sender && !orderSenders.includes(order.sender) && <option>{order.sender}</option>}{orderSenders.map((sender) => <option key={sender}>{sender}</option>)}</select></Field>
-        <Field label="Склад відправлення"><select value={draft.warehouse} disabled={!editing} onChange={(event) => setDraftValue('warehouse', event.target.value)}>{order.warehouse && !orderWarehouses.includes(order.warehouse) && <option>{order.warehouse}</option>}{orderWarehouses.map((warehouse) => <option key={warehouse}>{warehouse}</option>)}</select></Field>
-        <Field label="ТТН"><input data-testid={`input-order-ttn-${order.id}`} value={draft.ttn} disabled={!editing} placeholder="Номер накладної Нової пошти" onChange={(event) => setDraftValue('ttn', event.target.value)} /></Field>
-        <Field label="Номер видаткової"><input data-testid={`input-order-invoice-${order.id}`} value={draft.invoiceNumber} disabled={!editing} placeholder="Вкажіть номер видаткової" onChange={(event) => setDraftValue('invoiceNumber', event.target.value)} /></Field>
-        <Field label="Статус оплати"><select value={draft.paymentStatus} disabled={!editing} onChange={(event) => setDraftValue('paymentStatus', event.target.value)}>{!['Неоплачено', 'Оплачено'].includes(paymentStatus) && <option>{paymentStatus}</option>}<option>Неоплачено</option><option>Оплачено</option></select></Field>
+        {role !== 'warehouse' && <Field label="Дата замовлення"><input type="date" value={draft.orderDate} disabled={disabledField('orderDate')} onChange={(event) => setDraftValue('orderDate', event.target.value)} /></Field>}
+        {role !== 'warehouse' && <Field label="Сума замовлення, ₴"><input type="number" min="0" step="0.01" required value={draft.amountUah} disabled={disabledField('amountUah')} onChange={(event) => setDraftValue('amountUah', event.target.value)} /></Field>}
+        {role !== 'warehouse' && <Field label="ПІБ клієнта"><input value={draft.customerName} disabled={disabledField('customerName')} onChange={(event) => setDraftValue('customerName', event.target.value)} /></Field>}
+        {role !== 'warehouse' && <Field label="Телефон"><input type="tel" value={draft.phone} disabled={disabledField('phone')} onChange={(event) => setDraftValue('phone', event.target.value)} /></Field>}
+        <Field label="Відправник"><select value={draft.sender} disabled={disabledField('sender')} onChange={(event) => setDraftValue('sender', event.target.value)}>{order.sender && !orderSenders.includes(order.sender) && <option>{order.sender}</option>}{orderSenders.map((sender) => <option key={sender}>{sender}</option>)}</select></Field>
+        <Field label="Склад відправлення"><select value={draft.warehouse} disabled={disabledField('warehouse')} onChange={(event) => setDraftValue('warehouse', event.target.value)}>{order.warehouse && !orderWarehouses.includes(order.warehouse) && <option>{order.warehouse}</option>}{orderWarehouses.map((warehouse) => <option key={warehouse}>{warehouse}</option>)}</select></Field>
+        <Field label="ТТН"><input data-testid={`input-order-ttn-${order.id}`} value={draft.ttn} disabled={disabledField('ttn')} placeholder="Номер накладної Нової пошти" onChange={(event) => setDraftValue('ttn', event.target.value)} /></Field>
+        <Field label="Номер видаткової"><input data-testid={`input-order-invoice-${order.id}`} value={draft.invoiceNumber} disabled={disabledField('invoiceNumber')} placeholder="Вкажіть номер видаткової" onChange={(event) => setDraftValue('invoiceNumber', event.target.value)} /></Field>
+        {role !== 'warehouse' && <Field label="Статус оплати"><select value={draft.paymentStatus} disabled={disabledField('paymentStatus')} onChange={(event) => setDraftValue('paymentStatus', event.target.value)}>{!['Неоплачено', 'Оплачено'].includes(paymentStatus) && <option>{paymentStatus}</option>}<option>Неоплачено</option><option>Оплачено</option></select></Field>}
         <Field label="Статус Нової пошти"><span className="arrival-time-value">{deliveryStatus}</span></Field>
-        <Field label="Етап воронки"><select value={draft.stage} disabled={!editing} onChange={(event) => setDraftValue('stage', event.target.value)}>{stages.map((stage) => <option key={stage} value={stage}>{orderStageLabels[stage] ?? stage}</option>)}</select></Field>
-        <Field label="Кількість товару"><input type="number" min="0" step="1" value={draft.itemCount} disabled={!editing} onChange={(event) => setDraftValue('itemCount', event.target.value)} /></Field>
-        <Field label="Спосіб оплати"><select value={draft.paymentMethod} disabled={!editing} onChange={(event) => setDraftValue('paymentMethod', event.target.value)}>{paymentMethods.map((method) => <option key={method}>{method}</option>)}</select></Field>
+        <Field label="Етап воронки"><select value={draft.stage} disabled={disabledField('stage')} onChange={(event) => setDraftValue('stage', event.target.value)}>{stages.map((stage) => <option key={stage} value={stage}>{orderStageLabels[stage] ?? stage}</option>)}</select></Field>
+        <Field label="Кількість товару"><input type="number" min="0" step="1" value={draft.itemCount} disabled={disabledField('itemCount')} onChange={(event) => setDraftValue('itemCount', event.target.value)} /></Field>
+        {role !== 'warehouse' && <Field label="Спосіб оплати"><select value={draft.paymentMethod} disabled={disabledField('paymentMethod')} onChange={(event) => setDraftValue('paymentMethod', event.target.value)}>{paymentMethods.map((method) => <option key={method}>{method}</option>)}</select></Field>}
         <Field label="Дата прибуття у відділення НП"><span className="arrival-time-value">{order.arrivalDate ? date(order.arrivalDate) : 'Буде заповнено автоматично після оновлення статусу НП'}</span></Field>
-        <Field label="Коментар до замовлення" wide><textarea data-testid={`input-order-comment-${order.id}`} rows={3} value={draft.comment} disabled={!editing} placeholder="Наприклад: який товар замовив клієнт" onChange={(event) => setDraftValue('comment', event.target.value)} /></Field>
+        {role !== 'warehouse' && <Field label="Коментар до замовлення" wide><textarea data-testid={`input-order-comment-${order.id}`} rows={3} value={draft.comment} disabled={disabledField('comment')} placeholder="Наприклад: який товар замовив клієнт" onChange={(event) => setDraftValue('comment', event.target.value)} /></Field>}
       </div>
       <NovaPoshtaStatus status={deliveryStatus} ttn={draft.ttn} />
       {error && <p className="order-form-error" role="alert">{error}</p>}
-      <div className="order-detail-footer"><span>Спосіб оплати: <b>{order.paymentMethod || 'Не вказано'}</b></span><span>Склад: <b>{order.warehouse || 'Не вказано'}</b></span><span>Зараховано: <b>{paymentStatus === 'Оплачено' ? shortDate(order.paidAt) : 'Ще не зараховано'}</b></span></div>
+      <div className="order-detail-footer">{role !== 'warehouse' && <span>Спосіб оплати: <b>{order.paymentMethod || 'Не вказано'}</b></span>}<span>Склад: <b>{order.warehouse || 'Не вказано'}</b></span>{role !== 'warehouse' && <span>Зараховано: <b>{paymentStatus === 'Оплачено' ? shortDate(order.paidAt) : 'Ще не зараховано'}</b></span>}</div>
       <div className="order-detail-actions">
-        <button type="button" className="secondary-button" onClick={() => void updateTracking()} disabled={!draft.ttn.trim() || hasUnsavedTtn || refreshingTracking || saving || deleting} title={hasUnsavedTtn ? 'Спочатку збережіть зміни ТТН' : undefined}><RefreshCw size={14} className={refreshingTracking ? 'spin' : ''} />{refreshingTracking ? 'Оновлення статусу…' : 'Оновити статус НП'}</button>
+        {role !== 'accountant' && <button type="button" className="secondary-button" onClick={() => void updateTracking()} disabled={!draft.ttn.trim() || hasUnsavedTtn || refreshingTracking || saving || deleting} title={hasUnsavedTtn ? 'Спочатку збережіть зміни ТТН' : undefined}><RefreshCw size={14} className={refreshingTracking ? 'spin' : ''} />{refreshingTracking ? 'Оновлення статусу…' : 'Оновити статус НП'}</button>}
         {editing ? <>
           <button type="button" className="secondary-button" onClick={cancelEdit} disabled={saving || deleting}>Скасувати</button>
           <button type="submit" className="primary-button" disabled={saving || deleting}>{saving ? 'Збереження…' : 'Зберегти зміни'}</button>
-        </> : <button type="button" className="primary-button" onClick={() => setEditing(true)} disabled={deleting}><Edit3 size={14} /> Редагувати</button>}
-        <button type="button" className="order-delete-button" onClick={() => setDeleteConfirmationOpen(true)} disabled={saving || deleting}>Видалити замовлення</button>
+        </> : canEdit && <button type="button" className="primary-button" onClick={() => setEditing(true)} disabled={deleting}><Edit3 size={14} /> Редагувати</button>}
+        {canDelete && <button type="button" className="order-delete-button" onClick={() => setDeleteConfirmationOpen(true)} disabled={saving || deleting}>Видалити замовлення</button>}
       </div>
     </form>
     </Modal>
@@ -1053,8 +1252,8 @@ function OrderDetailModal({ order, company, save, remove, refreshTracking, close
     </div>}
   </>;
 }
-function ActivityBoardLine({ item, onCompany }: { item: ActivityBoardItem; onCompany: (companyId: number) => void }) {
-  return <div className="activity-item global-activity-item" data-testid={`activity-record-${item.id}`}><span className="activity-dot"><Activity size={11} /></span><div><div className="activity-title"><b>{item.title}</b><time>{date(item.createdAt)}</time></div><button className="activity-company-link" data-testid={`button-company-activity-${item.id}`} onClick={() => onCompany(item.companyId)}>{item.companyName} · {item.kind}</button><p>{item.details || 'Без додаткових деталей'}</p><small>{item.createdBy}</small></div></div>;
+function ActivityBoardLine({ item, onCompany }: { item: ActivityBoardItem; onCompany?: (companyId: number) => void }) {
+  return <div className="activity-item global-activity-item" data-testid={`activity-record-${item.id}`}><span className="activity-dot"><Activity size={11} /></span><div><div className="activity-title"><b>{item.title}</b><time>{date(item.createdAt)}</time></div>{onCompany ? <button className="activity-company-link" data-testid={`button-company-activity-${item.id}`} onClick={() => onCompany(item.companyId)}>{item.companyName} · {item.kind}</button> : <span className="activity-company-link">{item.companyName} · {item.kind}</span>}<p>{item.details || 'Без додаткових деталей'}</p><small>{item.createdBy}</small></div></div>;
 }
 function EmptyPanel({ label, action }: { label: string; action?: ReactNode }) { return <div className="global-empty" data-testid="state-empty"><span className="empty-mark"><ClipboardList size={20} /></span><b>{label}</b>{action}</div>; }
 
@@ -1076,8 +1275,9 @@ function ContactMini({ contact, copy, flash }: { contact: CompanyDetail['contact
 function ActivityItem({ item }: { item: CompanyDetail['activity'][number] }) { return <div className="activity-item"><span className="activity-dot"><Activity size={11} /></span><div><div className="activity-title"><b>{item.title}</b><time>{date(item.createdAt)}</time></div><p>{item.details || 'Без додаткових деталей'}</p><small>{item.createdBy}</small></div></div>; }
 function ActivityTab({ detail, open }: { detail: CompanyDetail; open: (kind: ModalKind) => void }) { return <div className="tab-page"><div className="tab-heading"><div><h3>Історія взаємодій</h3><p>Усі записи по клієнту в одному порядку.</p></div><button className="primary-button small" data-testid="button-add-history-note" onClick={() => open('note')}><Plus size={14} /> Додати запис</button></div>{detail.activity.length ? <div className="timeline">{detail.activity.map((item) => <ActivityItem key={item.id} item={item} />)}</div> : <div className="empty-state large"><History size={28} /><b>Історія порожня</b><span>Додайте нотатку, щоб зафіксувати домовленість.</span></div>}</div>; }
 function ContactsTab({ detail, open }: { detail: CompanyDetail; open: (kind: ModalKind) => void }) { return <div className="tab-page"><div className="tab-heading"><div><h3>Контактні особи</h3><p>Люди, з якими команда BUDBOX працює по цій компанії.</p></div><button className="primary-button small" data-testid="button-add-contact" onClick={() => open('contact')}><Plus size={14} /> Додати контакт</button></div>{detail.contacts.length ? <div className="contacts-grid">{detail.contacts.map((contact) => <div className="contact-card" key={contact.id}><div className="avatar large">{initials(contact.fullName)}</div><h4>{contact.fullName}</h4><span>{contact.role || 'Роль не вказана'}</span><p><MessageCircle size={13} />{contact.phone || 'Телефон не вказано'}</p><p><Mail size={13} />{contact.email || 'Email не вказано'}</p><div className="contact-actions"><a href={contact.phone ? `tel:${contact.phone}` : undefined}>Зателефонувати</a><button onClick={() => navigator.clipboard?.writeText(contact.telegram || contact.viber || '')}>Месенджер</button></div></div>)}</div> : <div className="empty-state large"><UsersRound size={28} /><b>Контактів ще немає</b><span>Додайте першу контактну особу компанії.</span></div>}</div>; }
-function OrdersTab({ detail, open, editOrder, deleteOrder, refreshTracking }: {
+function OrdersTab({ detail, role, open, editOrder, deleteOrder, refreshTracking }: {
   detail: CompanyDetail;
+  role: CrmRole;
   open: (kind: ModalKind) => void;
   editOrder: (id: number, data: OrderUpdate) => Promise<void>;
   deleteOrder: (id: number) => Promise<void>;
@@ -1086,12 +1286,28 @@ function OrdersTab({ detail, open, editOrder, deleteOrder, refreshTracking }: {
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const orderRows: OrderBoardItem[] = detail.orders.map((order) => ({ ...order, companyName: detail.name }));
   const selectedOrder = orderRows.find((order) => order.id === selectedOrderId);
-  return <div className="tab-page"><div className="tab-heading"><div><h3>Замовлення клієнта</h3><p>Відкрийте картку, щоб керувати оплатою та доставкою.</p></div><button className="primary-button small" data-testid="button-add-order" onClick={() => open('order')}><Plus size={14} /> Нове замовлення</button></div>  {orderRows.length ? <div className="orders-card-grid">{orderRows.map((order, index) => <OrderCard key={order.id} order={order} marketingSource={order.marketingSource || detail.source} index={index} open={() => setSelectedOrderId(order.id)} />)}</div> : <div className="empty-state large"><Package size={28} /><b>Замовлень ще немає</b><span>Створіть замовлення, щоб відстежувати оплату та доставку.</span></div>}
-    {selectedOrder && <OrderDetailModal order={selectedOrder} company={undefined} save={(id, _companyId, data) => editOrder(id, data)} remove={deleteOrder} refreshTracking={refreshTracking} close={() => setSelectedOrderId(null)} />}
+  return <div className="tab-page"><div className="tab-heading"><div><h3>Замовлення клієнта</h3><p>Відкрийте картку, щоб керувати оплатою та доставкою.</p></div><button className="primary-button small" data-testid="button-add-order" onClick={() => open('order')}><Plus size={14} /> Нове замовлення</button></div>  {orderRows.length ? <div className="orders-card-grid">{orderRows.map((order, index) => <OrderCard key={order.id} order={order} marketingSource={order.marketingSource || detail.source} index={index} role={role} editOrder={editOrder} open={() => setSelectedOrderId(order.id)} />)}</div> : <div className="empty-state large"><Package size={28} /><b>Замовлень ще немає</b><span>Створіть замовлення, щоб відстежувати оплату та доставку.</span></div>}
+    {selectedOrder && <OrderDetailModal order={selectedOrder} company={undefined} role={role} save={(id, _companyId, data) => editOrder(id, data)} remove={deleteOrder} refreshTracking={refreshTracking} close={() => setSelectedOrderId(null)} />}
   </div>;
 }
 
-function CompanyForm({ form, setValue, onSubmit, busy, edit }: { form: Record<string, string>; setValue: (key: string, value: string) => void; onSubmit: () => void; busy: boolean; edit: boolean }) { return <form className="form-grid" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}><Field label="Назва компанії" wide><input autoFocus data-testid="input-company-name" value={form.name || ''} onChange={(event) => setValue('name', event.target.value)} placeholder="ТОВ «Нова Будова»" required /></Field><Field label="Код / ІПН"><input data-testid="input-tax-id" value={form.taxId || ''} onChange={(event) => setValue('taxId', event.target.value)} /></Field><Field label="Тип клієнта"><select value={form.customerType || customerTypes[0]} onChange={(event) => setValue('customerType', event.target.value)}>{customerTypes.map((item) => <option key={item}>{item}</option>)}</select></Field><Field label="Місто"><input value={form.city || ''} onChange={(event) => setValue('city', event.target.value)} /></Field><Field label="Менеджер"><input value={form.manager || ''} onChange={(event) => setValue('manager', event.target.value)} /></Field><Field label="Склад"><input value={form.warehouse || ''} onChange={(event) => setValue('warehouse', event.target.value)} /></Field><Field label="Форма оплати"><select value={form.paymentForm || paymentForms[0]} onChange={(event) => setValue('paymentForm', event.target.value)}>{paymentForms.map((item) => <option key={item}>{item}</option>)}</select></Field><Field label="Кредитний ліміт, ₴"><input type="number" min="0" value={form.creditLimitUah || '0'} onChange={(event) => setValue('creditLimitUah', event.target.value)} /></Field><Field label="Відстрочка, днів"><input type="number" min="0" value={form.paymentTermsDays || '0'} onChange={(event) => setValue('paymentTermsDays', event.target.value)} /></Field><Field label="Знижка, %"><input type="number" min="0" max="100" value={form.discountPercent || '0'} onChange={(event) => setValue('discountPercent', event.target.value)} /></Field><Field label="Ціновий рівень"><input value={form.priceTier || ''} onChange={(event) => setValue('priceTier', event.target.value)} /></Field><MarketingSourceField form={form} setValue={setValue} /><div className="form-actions"><button type="button" className="secondary-button" onClick={() => window.dispatchEvent(new Event('close-modal'))}>Скасувати</button><button data-testid="button-submit-company" className="primary-button" disabled={busy}>{busy ? 'Збереження…' : edit ? 'Зберегти зміни' : 'Створити компанію'}</button></div></form>; }
+function CompanyForm({ form, setValue, onSubmit, busy, edit, canAssignManager }: { form: Record<string, string>; setValue: (key: string, value: string) => void; onSubmit: () => void; busy: boolean; edit: boolean; canAssignManager: boolean }) {
+  return <form className="form-grid" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
+    <Field label="Назва компанії" wide><input autoFocus data-testid="input-company-name" value={form.name || ''} onChange={(event) => setValue('name', event.target.value)} placeholder="ТОВ «Нова Будова»" required /></Field>
+    <Field label="Код / ІПН"><input data-testid="input-tax-id" value={form.taxId || ''} onChange={(event) => setValue('taxId', event.target.value)} /></Field>
+    <Field label="Тип клієнта"><select value={form.customerType || customerTypes[0]} onChange={(event) => setValue('customerType', event.target.value)}>{customerTypes.map((item) => <option key={item}>{item}</option>)}</select></Field>
+    <Field label="Місто"><input value={form.city || ''} onChange={(event) => setValue('city', event.target.value)} /></Field>
+    {canAssignManager && edit && <Field label="Відповідальний менеджер"><input value={form.manager || ''} onChange={(event) => setValue('manager', event.target.value)} /></Field>}
+    <Field label="Склад"><input value={form.warehouse || ''} onChange={(event) => setValue('warehouse', event.target.value)} /></Field>
+    <Field label="Форма оплати"><select value={form.paymentForm || paymentForms[0]} onChange={(event) => setValue('paymentForm', event.target.value)}>{paymentForms.map((item) => <option key={item}>{item}</option>)}</select></Field>
+    <Field label="Кредитний ліміт, ₴"><input type="number" min="0" value={form.creditLimitUah || '0'} onChange={(event) => setValue('creditLimitUah', event.target.value)} /></Field>
+    <Field label="Відстрочка, днів"><input type="number" min="0" value={form.paymentTermsDays || '0'} onChange={(event) => setValue('paymentTermsDays', event.target.value)} /></Field>
+    <Field label="Знижка, %"><input type="number" min="0" max="100" value={form.discountPercent || '0'} onChange={(event) => setValue('discountPercent', event.target.value)} /></Field>
+    <Field label="Ціновий рівень"><input value={form.priceTier || ''} onChange={(event) => setValue('priceTier', event.target.value)} /></Field>
+    <MarketingSourceField form={form} setValue={setValue} />
+    <div className="form-actions"><button type="button" className="secondary-button" onClick={() => window.dispatchEvent(new Event('close-modal'))}>Скасувати</button><button data-testid="button-submit-company" className="primary-button" disabled={busy}>{busy ? 'Збереження…' : edit ? 'Зберегти зміни' : 'Створити компанію'}</button></div>
+  </form>;
+}
 function MarketingSourceField({ form, setValue }: { form: Record<string, string>; setValue: (key: string, value: string) => void }) {
   const source = form.source || '';
   return <Field label="Маркетинг / джерело залучення">
@@ -1155,16 +1371,31 @@ function NoteForm({ form, setValue, onSubmit, busy }: { form: Record<string, str
 function Submit({ busy, label }: { busy: boolean; label: string }) { return <div className="form-actions"><button type="submit" className="primary-button" data-testid="button-submit-form" disabled={busy}>{busy ? 'Збереження…' : label}</button></div>; }
 
 function RoutedErrorBoundary({ children }: { children: ReactNode }) { const [location] = useLocation(); return <ErrorBoundary resetKey={location}>{children}</ErrorBoundary>; }
-function Router({ userEmail, isAdmin, onSignOut }: { userEmail: string | null; isAdmin: boolean; onSignOut: () => Promise<void> }) {
+function roleCanAccessPage(role: CrmRole, page: string): boolean {
+  switch (role) {
+    case 'owner': return true;
+    case 'director': return page !== 'admin';
+    case 'sales_manager': return ['overview', 'clients', 'tasks', 'orders', 'analytics', 'activity'].includes(page);
+    case 'manager': return ['clients', 'tasks', 'orders', 'analytics', 'activity'].includes(page);
+    case 'warehouse': return ['orders', 'warehouse'].includes(page);
+    case 'accountant': return ['orders', 'analytics'].includes(page);
+    case 'auditor': return ['activity'].includes(page);
+  }
+}
+function Router({ userEmail, userId, role, isAdmin, onSignOut }: { userEmail: string | null; userId: string; role: CrmRole; isAdmin: boolean; onSignOut: () => Promise<void> }) {
+  const globalPage = (page: 'overview' | 'tasks' | 'orders' | 'warehouse' | 'activity' | 'analytics' | 'admin') =>
+    roleCanAccessPage(role, page === 'admin' ? 'admin' : page) || (page === 'admin' && isAdmin)
+      ? <GlobalPage page={page} userEmail={userEmail} userId={userId} role={role} isAdmin={isAdmin} onSignOut={onSignOut} />
+      : <NotFound />;
   return <RoutedErrorBoundary><Switch>
-    <Route path="/" component={() => <CrmWorkspace userEmail={userEmail} isAdmin={isAdmin} onSignOut={onSignOut} />} />
-    <Route path="/overview"><GlobalPage page="overview" userEmail={userEmail} isAdmin={isAdmin} onSignOut={onSignOut} /></Route>
-    <Route path="/tasks"><GlobalPage page="tasks" userEmail={userEmail} isAdmin={isAdmin} onSignOut={onSignOut} /></Route>
-    <Route path="/orders"><GlobalPage page="orders" userEmail={userEmail} isAdmin={isAdmin} onSignOut={onSignOut} /></Route>
-    <Route path="/analytics"><GlobalPage page="analytics" userEmail={userEmail} isAdmin={isAdmin} onSignOut={onSignOut} /></Route>
-    <Route path="/warehouse"><GlobalPage page="warehouse" userEmail={userEmail} isAdmin={isAdmin} onSignOut={onSignOut} /></Route>
-    <Route path="/activity"><GlobalPage page="activity" userEmail={userEmail} isAdmin={isAdmin} onSignOut={onSignOut} /></Route>
-    <Route path="/admin">{isAdmin ? <GlobalPage page="admin" userEmail={userEmail} isAdmin={isAdmin} onSignOut={onSignOut} /> : <NotFound />}</Route>
+    <Route path="/">{roleCanAccessPage(role, 'clients') ? <CrmWorkspace userEmail={userEmail} role={role} isAdmin={isAdmin} onSignOut={onSignOut} /> : <NotFound />}</Route>
+    <Route path="/overview">{globalPage('overview')}</Route>
+    <Route path="/tasks">{globalPage('tasks')}</Route>
+    <Route path="/orders">{globalPage('orders')}</Route>
+    <Route path="/analytics">{globalPage('analytics')}</Route>
+    <Route path="/warehouse">{globalPage('warehouse')}</Route>
+    <Route path="/activity">{globalPage('activity')}</Route>
+    <Route path="/admin">{globalPage('admin')}</Route>
     <Route component={NotFound} />
   </Switch></RoutedErrorBoundary>;
 }
@@ -1173,7 +1404,9 @@ function AuthGate() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(() => Boolean(supabaseClient));
   const [authError, setAuthError] = useState('');
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [accessError, setAccessError] = useState('');
+  const [role, setRole] = useState<CrmRole>('manager');
+  const isAdmin = role === 'owner';
 
   useEffect(() => {
     const email = session?.user.email?.trim();
@@ -1197,6 +1430,7 @@ function AuthGate() {
       if (!mounted) return;
       setSession(nextSession);
       setAuthError('');
+      setAccessError('');
       setLoading(false);
       if (!nextSession) queryClient.clear();
     });
@@ -1219,7 +1453,7 @@ function AuthGate() {
 
   useEffect(() => {
     if (!client || !session) {
-      setIsAdmin(false);
+      setRole('manager');
       return;
     }
     let active = true;
@@ -1229,24 +1463,43 @@ function AuthGate() {
         if (error) throw error;
         const token = data.session?.access_token;
         if (!token) {
-          setIsAdmin(false);
+          setRole('manager');
+          setAccessError('');
           return;
         }
         const response = await fetch(`${apiBaseUrl}/api/auth/me`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (!response.ok) throw new Error(`Admin identity check failed with HTTP ${response.status}`);
+        if (response.status === 401) {
+          const { error } = await client.auth.signOut({ scope: 'local' });
+          if (error) throw error;
+          return;
+        }
+        if (!response.ok) {
+          if (response.status === 403) {
+            if (active) setAccessError('Доступ до CRM для цього акаунта вимкнений. Зверніться до головного адміністратора.');
+            return;
+          }
+          throw new Error(`CRM identity check failed with HTTP ${response.status}`);
+        }
         const result: unknown = await response.json();
-        const verifiedAdmin = Boolean(
+        const verifiedRole = (
           result &&
           typeof result === 'object' &&
-          'isAdmin' in result &&
-          result.isAdmin === true,
-        );
-        if (active) setIsAdmin(verifiedAdmin);
+          'role' in result &&
+          typeof result.role === 'string' &&
+          ['owner', 'director', 'sales_manager', 'manager', 'warehouse', 'accountant', 'auditor'].includes(result.role)
+        ) ? result.role as CrmRole : 'manager';
+        if (active) {
+          setAccessError('');
+          setRole(verifiedRole);
+        }
       } catch (error) {
         console.error('Could not verify CRM administrator access.', error);
-        if (active) setIsAdmin(false);
+        if (active) {
+          setRole('manager');
+          setAccessError('Не вдалося перевірити доступ до CRM. Оновіть сторінку або зверніться до адміністратора.');
+        }
       }
     })();
     return () => { active = false; };
@@ -1261,7 +1514,8 @@ function AuthGate() {
     const { error } = await client.auth.signOut();
     if (error) throw error;
   };
-  return <TooltipProvider><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}><Router userEmail={session.user.email ?? null} isAdmin={isAdmin} onSignOut={signOut} /></WouterRouter><Toaster /></TooltipProvider>;
+  if (accessError) return <main className="auth-loading"><ShieldCheck size={24} /><span>{accessError}</span><button type="button" className="secondary-button" onClick={() => void signOut()}>Вийти з акаунта</button></main>;
+  return <TooltipProvider><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}><Router userEmail={session.user.email ?? null} userId={session.user.id} role={role} isAdmin={isAdmin} onSignOut={signOut} /></WouterRouter><Toaster /></TooltipProvider>;
 }
 function App() { return <QueryClientProvider client={queryClient}><AuthGate /></QueryClientProvider>; }
 export default App;

@@ -43,4 +43,29 @@ Supabase bearer tokens and uses the signed-in user's email for manager
 attribution. Administrator status is determined on the API from
 `CRM_ADMIN_EMAIL` or trusted Supabase `app_metadata`; it is never granted by a
 frontend build flag.
+
+## CRM roles and access
+
+The API creates the CRM access and audit tables on startup. A user is added
+with the manager role after their first successful sign-in. The main
+administrator can then change their role, assign a team, or disable access in
+**Адмінка → Команда й ролі**. User invitations are not sent by the CRM; the
+account must first be able to sign in through the configured Supabase provider.
+
+Roles are enforced by the API as well as reflected in the navigation:
+
+- **Owner:** full access, user/role administration, and audit history.
+- **Director:** company-wide operational access, including order deletion and
+  warehouse; may reassign clients.
+- **Sales manager:** own and team client/order/task/activity data; may assign
+  clients to active members of the same team.
+- **Manager:** own client, order, task, analytics, and activity data.
+- **Warehouse:** shipment/order queue and stock; financial fields are omitted
+  from warehouse order responses.
+- **Accountant:** financial orders and analytics; can update payment status
+  and invoice number only.
+- **Auditor:** read-only activity history.
+
+Order deletion and changes to user roles/access are written to the admin audit
+log. The configured owner cannot be reassigned or blocked in the CRM.
 "# crmprm-bdbd" 
