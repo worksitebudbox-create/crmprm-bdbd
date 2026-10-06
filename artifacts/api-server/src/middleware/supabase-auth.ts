@@ -52,11 +52,14 @@ export async function requireAuthentication(
   const appMetadata = "app_metadata" in data && data.app_metadata && typeof data.app_metadata === "object"
     ? data.app_metadata as Record<string, unknown>
     : {};
+  const configuredAdminEmail = process.env.CRM_ADMIN_EMAIL?.trim().toLocaleLowerCase("en-US");
+  const userEmail = "email" in data && typeof data.email === "string" ? data.email : null;
   res.locals.authUser = {
     id: data.id,
-    email: "email" in data && typeof data.email === "string" ? data.email : null,
+    email: userEmail,
     appMetadata,
-    isAdmin: appMetadata.role === "admin",
+    isAdmin: appMetadata.role === "admin" ||
+      Boolean(configuredAdminEmail && userEmail?.trim().toLocaleLowerCase("en-US") === configuredAdminEmail),
   } satisfies AuthenticatedUser;
   next();
 }

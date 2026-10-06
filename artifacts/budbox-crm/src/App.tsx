@@ -43,7 +43,6 @@ import { supabaseClient } from './auth-client';
 
 const queryClient = new QueryClient();
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? '').trim();
-const isAdmin = import.meta.env.VITE_CRM_ADMIN === 'true';
 
 if (apiBaseUrl) {
   setBaseUrl(apiBaseUrl.replace(/\/+$/, ''));
@@ -186,7 +185,7 @@ function Modal({ title, subtitle, children, close }: { title: string; subtitle: 
 }
 function Skeleton({ className = '' }: { className?: string }) { return <div className={`skeleton ${className}`} />; }
 
-function CrmWorkspace({ userEmail, onSignOut }: { userEmail: string | null; onSignOut: () => Promise<void> }) {
+function CrmWorkspace({ userEmail, isAdmin, onSignOut }: { userEmail: string | null; isAdmin: boolean; onSignOut: () => Promise<void> }) {
   const qc = useQueryClient();
   const [, navigate] = useLocation();
   const [railOpen, setRailOpen] = useState(true);
@@ -389,7 +388,7 @@ function CrmWorkspace({ userEmail, onSignOut }: { userEmail: string | null; onSi
     <header className="topbar"><button data-testid="button-hamburger" className="icon-button hamburger" aria-label="Перемкнути навігацію" aria-expanded={window.innerWidth < 768 ? drawerOpen : railOpen} onClick={() => { if (window.innerWidth < 768) setDrawerOpen(!drawerOpen); else setRailOpen(!railOpen); }}><Menu size={19} /></button><div className="brand"><div className="brand-mark">B</div><div><strong>BUDBOX</strong><small>CRM / ПРОДАЖІ</small></div></div><div className="crumbs"><span>Продажі</span><ChevronRight size={13} /><b>Клієнти</b></div><div className="top-actions"><button aria-label="Сповіщення" aria-expanded={headerPanel === 'notifications'} data-testid="button-notifications" className="icon-button" onClick={() => setHeaderPanel(headerPanel === 'notifications' ? null : 'notifications')}><Bell size={17} />{overdueTasks.length > 0 && <i />}</button><button aria-label="Налаштування" aria-expanded={headerPanel === 'settings'} data-testid="button-settings" className="icon-button" onClick={() => setHeaderPanel(headerPanel === 'settings' ? null : 'settings')}><Settings2 size={17} /></button><button aria-label="Профіль і параметри" aria-expanded={headerPanel === 'profile'} className="profile profile-trigger" data-testid="button-profile-menu" onClick={() => setHeaderPanel(headerPanel === 'profile' ? null : 'profile')}><span>{userEmail?.slice(0, 2).toUpperCase() || 'BU'}</span><div><b>{userEmail || 'Робочий акаунт'}</b><small>Увійшли в CRM</small></div><ChevronDown size={14} /></button></div>
       {headerPanel && <div className="header-popover" data-testid={`panel-${headerPanel}`}><div className="popover-title">{headerPanel === 'notifications' ? 'Потребують уваги' : headerPanel === 'settings' ? 'Налаштування вигляду' : 'Робочий профіль'}<button className="icon-button" onClick={() => setHeaderPanel(null)}><X size={14} /></button></div>{headerPanel === 'notifications' ? taskBoard.isLoading ? <p>Завантаження завдань…</p> : taskBoard.isError ? <p>Не вдалося завантажити сповіщення.</p> : overdueTasks.length ? overdueTasks.slice(0, 5).map((task) => <button className="popover-row" key={task.id} onClick={() => { setHeaderPanel(null); navigate('/tasks'); }}><CircleAlert size={14} /><span><b>{task.title}</b><small>{task.companyName} · {date(task.dueAt)}</small></span></button>) : <p>Прострочених завдань немає.</p> : headerPanel === 'settings' ? <label className="density-control"><span><b>Компактний список</b><small>Менше вертикальних відступів у черзі</small></span><input data-testid="toggle-compact-density" type="checkbox" checked={compact} onChange={toggleCompact} /></label> : <><p>{userEmail || 'Робочий акаунт'}</p><button className="popover-row" onClick={() => { setHeaderPanel('settings'); }}><SlidersHorizontal size={14} /><span><b>Параметри робочого простору</b><small>Налаштування локальні для цього браузера</small></span></button><button className="popover-row auth-signout-row" onClick={() => { setHeaderPanel(null); void onSignOut().catch(() => flash('Не вдалося вийти з акаунта', 'error')); }}><LogOut size={14} /><span><b>Вийти з акаунта</b><small>Завершити поточний сеанс CRM</small></span></button></>}</div>}
     </header>
-    <div className={`workspace ${!railOpen ? 'rail-collapsed' : ''}`}><aside className={`rail ${drawerOpen ? 'drawer-open' : ''}`}><NavItems current="/" navigate={(path) => { navigate(path); setDrawerOpen(false); }} /></aside>{drawerOpen && <button className="drawer-scrim" aria-label="Закрити меню" onClick={() => setDrawerOpen(false)} />}
+    <div className={`workspace ${!railOpen ? 'rail-collapsed' : ''}`}><aside className={`rail ${drawerOpen ? 'drawer-open' : ''}`}><NavItems current="/" isAdmin={isAdmin} navigate={(path) => { navigate(path); setDrawerOpen(false); }} /></aside>{drawerOpen && <button className="drawer-scrim" aria-label="Закрити меню" onClick={() => setDrawerOpen(false)} />}
       <main className="main"><div className="page-heading"><div><div className="eyebrow"><span /> РОБОЧА ЧЕРГА ПРОДАЖІВ</div><h1>Клієнти <small data-testid="text-company-count">{summaryQuery.data?.totalCompanies ?? companies.length} клієнтів і компаній</small></h1></div><div className="client-heading-actions"><button data-testid="button-new-company" className="secondary-button" onClick={() => open('company')}><Plus size={16} /> <span>Нова компанія</span></button><button data-testid="button-new-client" className="primary-button" onClick={() => open('client', { customerType: retailCustomerType, manager: currentManager, paymentForm: PaymentForm.готівка })}><Plus size={16} /> <span>Новий клієнт</span></button></div></div>
         <div className="summary-strip">{summaryQuery.isLoading ? <><Skeleton /><Skeleton /><Skeleton /><Skeleton /></> : summaryQuery.isError ? <div className="summary-error">Не вдалося завантажити підсумок <button onClick={() => summaryQuery.refetch()}>Повторити</button></div> : <><div><span>КОМПАНІЇ</span><b data-testid="summary-companies">{summaryQuery.data?.totalCompanies ?? 0}</b></div><div><span>АКТИВНІ ЗАМОВЛЕННЯ</span><b data-testid="summary-orders">{summaryQuery.data?.activeOrders ?? 0}</b></div><div><span>ВОРОНКА</span><b data-testid="summary-pipeline">{money(summaryQuery.data?.pipelineValueUah ?? 0)}</b></div><div className="summary-alert"><span>ПРОСТРОЧЕНІ ЗАВДАННЯ</span><b data-testid="summary-overdue">{summaryQuery.data?.overdueTasks ?? 0}</b></div></>}</div>
          <div className="crm-shell"><section className="queue"><div className="queue-head"><div><h2>Черга клієнтів</h2><p>Фізичні особи, компанії та їхні замовлення</p></div><button data-testid="button-sort-companies" className="icon-button" onClick={() => setSortNewest((value) => !value)}><ArrowDownUp size={15} /></button><div className="search-wrap"><Search size={15} /><input data-testid="input-company-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Ім’я, код або місто" /></div><div className="filter-row">{filters.map((item) => <button data-testid={`filter-${item.value}`} key={item.value} className={filter === item.value ? 'selected' : ''} onClick={() => setFilter(item.value)}>{item.label}</button>)}</div></div><div className="queue-labels"><span>КЛІЄНТ / ТИП</span><span>ЕТАП / СУМА</span></div><div className="company-list bb-scroll">{companiesQuery.isLoading ? <>{[1, 2, 3, 4].map((item) => <div key={item} className="company-skeleton"><Skeleton /><Skeleton /><Skeleton /></div>)}</> : companiesQuery.isError ? <div className="empty-state"><CircleAlert size={22} /><b>Не вдалося завантажити клієнтів</b><button onClick={() => companiesQuery.refetch()}>Повторити</button></div> : sorted.length ? sorted.map((company) => <CompanyRow key={company.id} company={company} active={company.id === activeId} select={() => { setSelectedId(company.id); localStorage.setItem('budbox-selected-company', String(company.id)); setTab('Огляд'); }} />) : companies.length === 0 && !query && filter === GetCompaniesFilter.all ? <div className="empty-state"><UsersRound size={24} /><b>Клієнтів ще немає</b><span>Створіть картку клієнта або компанії.</span><button data-testid="button-create-first-company" onClick={() => open('client', { customerType: retailCustomerType, manager: currentManager, paymentForm: PaymentForm.готівка, channel: 'Instagram Direct' })}>Створити клієнта</button></div> : <div className="empty-state"><Search size={23} /><b>Нічого не знайдено</b><span>Змініть пошук або фільтр</span><button onClick={() => { setQuery(''); setFilter(GetCompaniesFilter.all); }}>Скинути фільтри</button></div>}</div><div className="queue-foot"><span>Показано {sorted.length} із {companies.length}</span><button onClick={() => { setQuery(''); setFilter(GetCompaniesFilter.all); }}>Скинути</button></div></section>
@@ -412,10 +411,10 @@ const navigation = [
   { path: '/analytics', label: 'Аналітика', icon: BarChart3, id: 'nav-analytics' },
   { path: '/warehouse', label: 'Склад', icon: Package, id: 'nav-warehouse' },
   { path: '/activity', label: 'Активність', icon: Activity, id: 'nav-activity' },
-  ...(isAdmin ? [{ path: '/admin', label: 'Адмінка', icon: ShieldCheck, id: 'nav-admin' }] : []),
 ];
-function NavItems({ current, navigate }: { current: string; navigate?: (path: string) => void }) {
-  return <>{navigation.map(({ path, label, icon: Icon, id }) => <Link key={path} href={path} aria-label={label} title={label} data-testid={id} className={`nav-link ${current === path ? 'active' : ''}`} onClick={() => navigate?.(path)}><Icon size={18} /><span>{label}</span></Link>)}</>;
+function NavItems({ current, isAdmin, navigate }: { current: string; isAdmin: boolean; navigate?: (path: string) => void }) {
+  const items = isAdmin ? [...navigation, { path: '/admin', label: 'Адмінка', icon: ShieldCheck, id: 'nav-admin' }] : navigation;
+  return <>{items.map(({ path, label, icon: Icon, id }) => <Link key={path} href={path} aria-label={label} title={label} data-testid={id} className={`nav-link ${current === path ? 'active' : ''}`} onClick={() => navigate?.(path)}><Icon size={18} /><span>{label}</span></Link>)}</>;
 }
 
 type AnalyticsPeriod = 'day' | 'week' | 'month';
@@ -596,7 +595,7 @@ function AnalyticsPage({ orders }: { orders: OrderBoardItem[] }) {
   </section>;
 }
 
-function GlobalPage({ page, userEmail, onSignOut }: { page: 'overview' | 'tasks' | 'orders' | 'warehouse' | 'activity' | 'analytics' | 'admin'; userEmail: string | null; onSignOut: () => Promise<void> }) {
+function GlobalPage({ page, userEmail, isAdmin, onSignOut }: { page: 'overview' | 'tasks' | 'orders' | 'warehouse' | 'activity' | 'analytics' | 'admin'; userEmail: string | null; isAdmin: boolean; onSignOut: () => Promise<void> }) {
   const qc = useQueryClient();
   const [, navigate] = useLocation();
   const [railOpen, setRailOpen] = useState(true);
@@ -769,7 +768,7 @@ function GlobalPage({ page, userEmail, onSignOut }: { page: 'overview' | 'tasks'
     <header className="topbar"><button data-testid="button-hamburger" className="icon-button hamburger" aria-label="Перемкнути навігацію" aria-expanded={window.innerWidth < 768 ? drawerOpen : railOpen} onClick={() => { if (window.innerWidth < 768) setDrawerOpen(!drawerOpen); else setRailOpen(!railOpen); }}><Menu size={19} /></button><div className="brand"><div className="brand-mark">B</div><div><strong>BUDBOX</strong><small>CRM / ПРОДАЖІ</small></div></div><div className="crumbs"><span>Продажі</span><ChevronRight size={13} /><b>{pageTitle}</b></div><div className="top-actions"><button aria-label="Сповіщення" aria-expanded={panel === 'notifications'} className="icon-button" data-testid="button-notifications" onClick={() => setPanel(panel === 'notifications' ? null : 'notifications')}><Bell size={17} />{overdueRows.length > 0 && <i />}</button><button aria-label="Налаштування" aria-expanded={panel === 'settings'} className="icon-button" data-testid="button-settings" onClick={() => setPanel(panel === 'settings' ? null : 'settings')}><Settings2 size={17} /></button><button aria-label="Профіль і параметри" aria-expanded={panel === 'profile'} className="profile profile-trigger" data-testid="button-profile-menu" onClick={() => setPanel(panel === 'profile' ? null : 'profile')}><span>{userEmail?.slice(0, 2).toUpperCase() || 'BU'}</span><div><b>{userEmail || 'Робочий акаунт'}</b><small>Увійшли в CRM</small></div><ChevronDown size={14} /></button></div>
       {panel && <div className="header-popover" data-testid={`panel-${panel}`}><div className="popover-title">{panel === 'notifications' ? 'Потребують уваги' : panel === 'settings' ? 'Налаштування вигляду' : 'Робочий профіль'}<button className="icon-button" onClick={() => setPanel(null)}><X size={14} /></button></div>{panel === 'notifications' ? tasks.isLoading ? <p>Завантаження завдань…</p> : tasks.isError ? <p>Не вдалося завантажити сповіщення.</p> : overdueRows.length ? overdueRows.slice(0, 5).map((task) => <button className="popover-row" key={task.id} onClick={() => { setPanel(null); navigate('/tasks'); }}><CircleAlert size={14} /><span><b>{task.title}</b><small>{task.companyName} · {date(task.dueAt)}</small></span></button>) : <p>Прострочених завдань немає.</p> : panel === 'settings' ? <label className="density-control"><span><b>Компактний список</b><small>Менше вертикальних відступів у списках</small></span><input data-testid="toggle-compact-density" type="checkbox" checked={compact} onChange={setDensity} /></label> : <><p>{userEmail || 'Робочий акаунт'}</p><button className="popover-row" onClick={() => setPanel('settings')}><SlidersHorizontal size={14} /><span><b>Налаштування вигляду</b><small>Зберігаються локально у цьому браузері</small></span></button><button className="popover-row auth-signout-row" onClick={() => { setPanel(null); void onSignOut().catch(() => { setNoticeIsError(true); setNotice('Не вдалося вийти з акаунта'); }); }}><LogOut size={14} /><span><b>Вийти з акаунта</b><small>Завершити поточний сеанс CRM</small></span></button></>}</div>}
     </header>
-    <div className={`workspace ${railOpen ? '' : 'rail-collapsed'}`}><aside className={`rail ${drawerOpen ? 'drawer-open' : ''}`}><NavItems current={page === 'overview' ? '/overview' : `/${page}`} navigate={() => setDrawerOpen(false)} /></aside>{drawerOpen && <button className="drawer-scrim" aria-label="Закрити меню" onClick={() => setDrawerOpen(false)} />}
+    <div className={`workspace ${railOpen ? '' : 'rail-collapsed'}`}><aside className={`rail ${drawerOpen ? 'drawer-open' : ''}`}><NavItems current={page === 'overview' ? '/overview' : `/${page}`} isAdmin={isAdmin} navigate={() => setDrawerOpen(false)} /></aside>{drawerOpen && <button className="drawer-scrim" aria-label="Закрити меню" onClick={() => setDrawerOpen(false)} />}
         <main className="main global-main"><div className="page-heading"><div><div className="eyebrow"><span /> РОБОЧИЙ ПРОСТІР ПРОДАЖІВ</div><h1 data-testid="text-page-title">{pageTitle}</h1></div>{page === 'tasks' ? <button data-testid="button-new-task" className="primary-button" onClick={() => openForm('task')}><Plus size={15} /> Нове завдання</button> : page === 'orders' ? <button data-testid="button-new-order" className="primary-button" onClick={() => openForm('order')}><Plus size={15} /> Нове замовлення</button> : page === 'activity' ? <button data-testid="button-new-activity" className="primary-button" onClick={() => openForm('note')}><Plus size={15} /> Додати запис</button> : null}</div>
         {loadingForPage ? <div className="global-loading" data-testid="state-loading">{page === 'orders' ? <div className="orders-loading-grid">{[1, 2, 3, 4, 5, 6].map((n) => <div className="order-card-skeleton" key={n}><Skeleton /><Skeleton /><Skeleton /><Skeleton /></div>)}</div> : [1, 2, 3].map((n) => <div className="global-skeleton" key={n}><Skeleton /><Skeleton /><Skeleton /></div>)}</div> : errorForPage ? <div className="empty-state large" data-testid="state-error"><CircleAlert size={26} /><b>Дані тимчасово недоступні</b><span>Перевірте з’єднання та спробуйте ще раз.</span><button data-testid="button-retry-page" onClick={() => { void summary.refetch(); void tasks.refetch(); void orders.refetch(); void activity.refetch(); }}>Повторити</button></div> : null}
         {!loadingForPage && !errorForPage && page === 'overview' && <><div className="summary-strip">{[['КОМПАНІЇ', summary.data?.totalCompanies ?? 0], ['АКТИВНІ ЗАМОВЛЕННЯ', summary.data?.activeOrders ?? 0], ['ВОРОНКА', money(summary.data?.pipelineValueUah ?? 0)], ['ПРОСТРОЧЕНІ ЗАВДАННЯ', summary.data?.overdueTasks ?? 0]].map(([label, value]) => <div key={String(label)}><span>{label}</span><b data-testid={`overview-metric-${String(label).toLowerCase().replaceAll(' ', '-')}`}>{value}</b></div>)}</div><div className="global-grid"><section className="data-card"><SectionHeader icon={ClipboardList} title="Найближчі завдання" subtitle="Незавершені нагадування команди" action={<Link className="text-button" href="/tasks">Усі завдання</Link>} />{taskRows.filter((task) => !task.isCompleted).slice(0, 6).map((task) => <TaskLine task={task} toggle={toggleTask} key={task.id} />)}{!taskRows.filter((task) => !task.isCompleted).length && <EmptyPanel label="Незавершених завдань поки немає." />}</section><section className="data-card"><SectionHeader icon={History} title="Останні записи" subtitle="Нещодавні дії у клієнтських картках" action={<Link className="text-button" href="/activity">Уся активність</Link>} />{activityRows.slice(0, 6).map((item) => <ActivityBoardLine item={item} key={item.id} onCompany={(companyId) => { localStorage.setItem('budbox-selected-company', String(companyId)); navigate('/'); }} />)}{!activityRows.length && <EmptyPanel label="Активність з’явиться після записів у CRM." />}</section></div></>}
@@ -829,7 +828,7 @@ function AdminPanel({ orders, companyCount, compact, toggleCompact }: {
         <div className="data-card"><span>ОЧІКУЮТЬ ОПЛАТИ</span><b>{unpaid.length}</b><small>{money(unpaid.reduce((sum, order) => sum + order.amountUah, 0))}</small></div>
         <div className="data-card"><span>ЗАРАХОВАНО СЬОГОДНІ</span><b>{money(paidToday)}</b><small>{paid.filter((order) => localDateKey(order.paidAt) === localDateInput()).length} оплачених замовлень</small></div>
       </div>
-      <section className="data-card admin-access-note"><ShieldCheck size={18} /><div><b>Керування доступом</b><p>Вхід і ролі користувачів додамо наступним етапом. Поки доступність цього меню визначає параметр VITE_CRM_ADMIN.</p></div></section>
+      <section className="data-card admin-access-note"><ShieldCheck size={18} /><div><b>Керування доступом</b><p>Головний адміністратор визначається на API за перевіреною поштою. Керування ролями команди буде додано наступним етапом.</p></div></section>
     </> : <section className="data-card admin-settings-card">
       <SectionHeader icon={SlidersHorizontal} title="Налаштування CRM" subtitle="Параметри вигляду для цього браузера" />
       <label className="density-control"><span><b>Компактні списки</b><small>Зменшити відступи у списках клієнтів і картках</small></span><input data-testid="toggle-admin-compact" type="checkbox" checked={compact} onChange={toggleCompact} /></label>
@@ -1136,16 +1135,16 @@ function NoteForm({ form, setValue, onSubmit, busy }: { form: Record<string, str
 function Submit({ busy, label }: { busy: boolean; label: string }) { return <div className="form-actions"><button type="submit" className="primary-button" data-testid="button-submit-form" disabled={busy}>{busy ? 'Збереження…' : label}</button></div>; }
 
 function RoutedErrorBoundary({ children }: { children: ReactNode }) { const [location] = useLocation(); return <ErrorBoundary resetKey={location}>{children}</ErrorBoundary>; }
-function Router({ userEmail, onSignOut }: { userEmail: string | null; onSignOut: () => Promise<void> }) {
+function Router({ userEmail, isAdmin, onSignOut }: { userEmail: string | null; isAdmin: boolean; onSignOut: () => Promise<void> }) {
   return <RoutedErrorBoundary><Switch>
-    <Route path="/" component={() => <CrmWorkspace userEmail={userEmail} onSignOut={onSignOut} />} />
-    <Route path="/overview"><GlobalPage page="overview" userEmail={userEmail} onSignOut={onSignOut} /></Route>
-    <Route path="/tasks"><GlobalPage page="tasks" userEmail={userEmail} onSignOut={onSignOut} /></Route>
-    <Route path="/orders"><GlobalPage page="orders" userEmail={userEmail} onSignOut={onSignOut} /></Route>
-    <Route path="/analytics"><GlobalPage page="analytics" userEmail={userEmail} onSignOut={onSignOut} /></Route>
-    <Route path="/warehouse"><GlobalPage page="warehouse" userEmail={userEmail} onSignOut={onSignOut} /></Route>
-    <Route path="/activity"><GlobalPage page="activity" userEmail={userEmail} onSignOut={onSignOut} /></Route>
-    <Route path="/admin">{isAdmin ? <GlobalPage page="admin" userEmail={userEmail} onSignOut={onSignOut} /> : <NotFound />}</Route>
+    <Route path="/" component={() => <CrmWorkspace userEmail={userEmail} isAdmin={isAdmin} onSignOut={onSignOut} />} />
+    <Route path="/overview"><GlobalPage page="overview" userEmail={userEmail} isAdmin={isAdmin} onSignOut={onSignOut} /></Route>
+    <Route path="/tasks"><GlobalPage page="tasks" userEmail={userEmail} isAdmin={isAdmin} onSignOut={onSignOut} /></Route>
+    <Route path="/orders"><GlobalPage page="orders" userEmail={userEmail} isAdmin={isAdmin} onSignOut={onSignOut} /></Route>
+    <Route path="/analytics"><GlobalPage page="analytics" userEmail={userEmail} isAdmin={isAdmin} onSignOut={onSignOut} /></Route>
+    <Route path="/warehouse"><GlobalPage page="warehouse" userEmail={userEmail} isAdmin={isAdmin} onSignOut={onSignOut} /></Route>
+    <Route path="/activity"><GlobalPage page="activity" userEmail={userEmail} isAdmin={isAdmin} onSignOut={onSignOut} /></Route>
+    <Route path="/admin">{isAdmin ? <GlobalPage page="admin" userEmail={userEmail} isAdmin={isAdmin} onSignOut={onSignOut} /> : <NotFound />}</Route>
     <Route component={NotFound} />
   </Switch></RoutedErrorBoundary>;
 }
@@ -1154,6 +1153,7 @@ function AuthGate() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(() => Boolean(supabaseClient));
   const [authError, setAuthError] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     const email = session?.user.email?.trim();
@@ -1197,6 +1197,41 @@ function AuthGate() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!client || !session) {
+      setIsAdmin(false);
+      return;
+    }
+    let active = true;
+    void (async () => {
+      try {
+        const { data, error } = await client.auth.getSession();
+        if (error) throw error;
+        const token = data.session?.access_token;
+        if (!token) {
+          setIsAdmin(false);
+          return;
+        }
+        const response = await fetch(`${apiBaseUrl}/api/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!response.ok) throw new Error(`Admin identity check failed with HTTP ${response.status}`);
+        const result: unknown = await response.json();
+        const verifiedAdmin = Boolean(
+          result &&
+          typeof result === 'object' &&
+          'isAdmin' in result &&
+          result.isAdmin === true,
+        );
+        if (active) setIsAdmin(verifiedAdmin);
+      } catch (error) {
+        console.error('Could not verify CRM administrator access.', error);
+        if (active) setIsAdmin(false);
+      }
+    })();
+    return () => { active = false; };
+  }, [client, session?.access_token]);
+
   if (!client || !session) {
     if (loading) return <main className="auth-loading"><LoaderCircle size={24} /><span>Перевіряємо доступ…</span></main>;
     return <LoginPage client={client} errorMessage={authError} />;
@@ -1206,7 +1241,7 @@ function AuthGate() {
     const { error } = await client.auth.signOut();
     if (error) throw error;
   };
-  return <TooltipProvider><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}><Router userEmail={session.user.email ?? null} onSignOut={signOut} /></WouterRouter><Toaster /></TooltipProvider>;
+  return <TooltipProvider><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}><Router userEmail={session.user.email ?? null} isAdmin={isAdmin} onSignOut={signOut} /></WouterRouter><Toaster /></TooltipProvider>;
 }
 function App() { return <QueryClientProvider client={queryClient}><AuthGate /></QueryClientProvider>; }
 export default App;

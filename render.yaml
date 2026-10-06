@@ -17,6 +17,8 @@ services:
         sync: false
       - key: SUPABASE_ANON_KEY
         sync: false
+      - key: CRM_ADMIN_EMAIL
+        sync: false
       - key: NOVA_POSHTA_API_KEY
         sync: false
       - key: GOOGLE_SERVICE_ACCOUNT_EMAIL

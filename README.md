@@ -29,14 +29,18 @@ pnpm --dir artifacts/api-server build
   `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to the public Supabase
   project values.
 - **Render API:** create the service from the root `render.yaml` Blueprint.
-  Configure `DATABASE_URL`, `SUPABASE_URL`, and `SUPABASE_ANON_KEY`; add the
-  Nova Poshta and Google Sheets variables only when those integrations are
-  enabled. The API health endpoint is `/api/healthz`.
+  Configure `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and
+  `CRM_ADMIN_EMAIL` (the verified email that should receive the initial
+  administrator view); add the Nova Poshta and Google Sheets variables only
+  when those integrations are enabled. The API health endpoint is
+  `/api/healthz`.
 - **Secrets:** do not commit `.env` files. Use the `.env.example` files as
   variable-name references and configure production values in the hosting
   providers.
 
 The frontend and API must use the same Supabase project. The API verifies
 Supabase bearer tokens and uses the signed-in user's email for manager
-attribution.
+attribution. Administrator status is determined on the API from
+`CRM_ADMIN_EMAIL` or trusted Supabase `app_metadata`; it is never granted by a
+frontend build flag.
 "# crmprm-bdbd" 
