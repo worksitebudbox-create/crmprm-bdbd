@@ -426,7 +426,7 @@ function NavItems({ current, role, isAdmin, navigate }: { current: string; role:
   return <>{items.map(({ path, label, icon: Icon, id }) => <Link key={path} href={path} aria-label={label} title={label} data-testid={id} className={`nav-link ${current === path ? 'active' : ''}`} onClick={() => navigate?.(path)}><Icon size={18} /><span>{label}</span></Link>)}</>;
 }
 
-type AnalyticsPeriod = 'day' | 'week' | 'month';
+type AnalyticsPeriod = 'day' | 'week' | 'month' | 'range';
 type CrmRole = 'owner' | 'director' | 'sales_manager' | 'manager' | 'warehouse' | 'accountant' | 'auditor';
 type AdminUser = {
   id: number;
@@ -507,7 +507,10 @@ function getEndOfWeek(date: Date) {
   return end;
 }
 
-function formatWindowLabel(period: AnalyticsPeriod, anchorDate: string) {
+function formatWindowLabel(period: AnalyticsPeriod, anchorDate: string, rangeStart: string, rangeEnd: string) {
+  if (period === 'range') {
+    return `${shortDate(rangeStart)} – ${shortDate(rangeEnd)}`;
+  }
   const date = new Date(`${anchorDate}T12:00:00`);
   if (period === 'day') return new Intl.DateTimeFormat('uk-UA', { day: 'numeric', month: 'short' }).format(date);
   if (period === 'week') {
@@ -518,7 +521,27 @@ function formatWindowLabel(period: AnalyticsPeriod, anchorDate: string) {
   return new Intl.DateTimeFormat('uk-UA', { month: 'long', year: 'numeric' }).format(date);
 }
 
-function buildAnalyticsChartData(orders: OrderBoardItem[], period: AnalyticsPeriod, anchorDate: string) {
+function buildAnalyticsChartData(orders: OrderBoardItem[], period: AnalyticsPeriod, anchorDate: string, rangeStart: string, rangeEnd: string) {
+  if (period === 'range') {
+    const start = new Date(`${rangeStart}T12:00:00`);
+    const end = new Date(`${rangeEnd}T12:00:00`);
+    const numberOfDays = Math.floor((Date.UTC(end.getFullYear(), end.getMonth(), end.getDate()) - Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())) / 86_400_000) + 1;
+    const totalsByDay = new Map<string, number>();
+    for (const order of orders) {
+      if (order.paymentStatus !== 'Оплачено') continue;
+      const orderDate = getAnalyticsOrderDate(order);
+      if (!orderDate) continue;
+      const key = localDateKey(orderDate.toISOString());
+      if (key < rangeStart || key > rangeEnd) continue;
+      totalsByDay.set(key, (totalsByDay.get(key) ?? 0) + order.amountUah);
+    }
+    return Array.from({ length: numberOfDays }, (_, index) => {
+      const day = addDays(start, index);
+      const key = localDateKey(day.toISOString());
+      const value = totalsByDay.get(key) ?? 0;
+      return { label: new Intl.DateTimeFormat('uk-UA', { day: 'numeric', month: 'short' }).format(day), value };
+    });
+  }
   const base = new Date(`${anchorDate}T12:00:00`);
   if (period === 'day') {
     return Array.from({ length: 7 }, (_, index) => {
@@ -554,6 +577,8 @@ function buildAnalyticsChartData(orders: OrderBoardItem[], period: AnalyticsPeri
 function AnalyticsPage({ orders }: { orders: OrderBoardItem[] }) {
   const [period, setPeriod] = useState<AnalyticsPeriod>('day');
   const [selectedDate, setSelectedDate] = useState(() => localDateInput());
+  const [rangeStart, setRangeStart] = useState(() => `${localDateInput().slice(0, 7)}-01`);
+  const [rangeEnd, setRangeEnd] = useState(() => localDateInput());
   const [planValue, setPlanValue] = useState<number>(() => {
     const saved = Number(localStorage.getItem('budbox-analytics-plan-ua') ?? '0');
     return Number.isFinite(saved) ? saved : 0;
@@ -565,10 +590,15 @@ function AnalyticsPage({ orders }: { orders: OrderBoardItem[] }) {
 
   const currentPeriodValue = useMemo(() => {
     const date = new Date(`${selectedDate}T12:00:00`);
+    const isWithinRange = (value: Date) => {
+      const key = localDateKey(value.toISOString());
+      return key >= rangeStart && key <= rangeEnd;
+    };
     const inRange = (order: OrderBoardItem) => {
       const value = getAnalyticsOrderDate(order);
       if (!value) return false;
       if (period === 'day') return localDateKey(value.toISOString()) === selectedDate;
+      if (period === 'range') return isWithinRange(value);
       if (period === 'week') {
         const start = getStartOfWeek(date);
         const end = getEndOfWeek(date);
@@ -579,38 +609,48 @@ function AnalyticsPage({ orders }: { orders: OrderBoardItem[] }) {
       return value >= monthStart && value <= monthEnd;
     };
     return orders.filter((order) => order.paymentStatus === 'Оплачено' && inRange(order)).reduce((sum, order) => sum + order.amountUah, 0);
-  }, [orders, period, selectedDate]);
+  }, [orders, period, selectedDate, rangeStart, rangeEnd]);
 
-  const chartData = useMemo(() => buildAnalyticsChartData(orders, period, selectedDate), [orders, period, selectedDate]);
+  const chartData = useMemo(() => buildAnalyticsChartData(orders, period, selectedDate, rangeStart, rangeEnd), [orders, period, selectedDate, rangeStart, rangeEnd]);
   const remaining = Math.max(planValue - currentPeriodValue, 0);
   const completion = planValue > 0 ? Math.min((currentPeriodValue / planValue) * 100, 100) : 0;
-  const currentWindowLabel = formatWindowLabel(period, selectedDate);
+  const currentWindowLabel = formatWindowLabel(period, selectedDate, rangeStart, rangeEnd);
+  const periodLabel = period === 'day' ? 'день' : period === 'week' ? 'тиждень' : period === 'month' ? 'місяць' : 'період';
 
   return <section className="analytics-page">
     <div className="analytics-toolbar data-card">
       <div className="analytics-period-switch" role="tablist" aria-label="Період аналітики">
-        {(['day', 'week', 'month'] as AnalyticsPeriod[]).map((item) => <button key={item} type="button" className={period === item ? 'active' : ''} onClick={() => setPeriod(item)}>{item === 'day' ? 'День' : item === 'week' ? 'Тиждень' : 'Місяць'}</button>)}
+        {(['day', 'week', 'month', 'range'] as AnalyticsPeriod[]).map((item) => <button key={item} type="button" className={period === item ? 'active' : ''} onClick={() => setPeriod(item)}>{item === 'day' ? 'День' : item === 'week' ? 'Тиждень' : item === 'month' ? 'Місяць' : 'Від — до'}</button>)}
       </div>
-      <label className="analytics-date-picker">
+      {period === 'range' ? <>
+        <label className="analytics-date-picker">
+          <span>Від</span>
+          <input aria-label="Дата початку аналітики" type="date" value={rangeStart} max={rangeEnd} onChange={(event) => { if (event.target.value) setRangeStart(event.target.value); }} />
+        </label>
+        <label className="analytics-date-picker">
+          <span>До</span>
+          <input aria-label="Дата завершення аналітики" type="date" value={rangeEnd} min={rangeStart} onChange={(event) => { if (event.target.value) setRangeEnd(event.target.value); }} />
+        </label>
+      </> : <label className="analytics-date-picker">
         <span>Дата</span>
         <input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
-      </label>
+      </label>}
       <label className="analytics-plan-input">
-        <span>План</span>
+        <span>План на {periodLabel}</span>
         <input type="number" min="0" step="100" value={planValue || ''} placeholder="0" onChange={(event) => setPlanValue(Number(event.target.value || 0))} />
       </label>
     </div>
 
     <div className="analytics-summary-grid">
       <div className="data-card analytics-metric">
-        <span>Виручка за {period === 'day' ? 'день' : period === 'week' ? 'тиждень' : 'місяць'}</span>
+        <span>Виручка за {periodLabel}</span>
         <b>{money(currentPeriodValue)}</b>
         <small>{currentWindowLabel}</small>
       </div>
       <div className="data-card analytics-metric">
         <span>План</span>
         <b>{money(planValue)}</b>
-        <small>{planValue > 0 ? 'План запланований на цей період' : 'План ще не задано'}</small>
+        <small>{planValue > 0 ? `План запланований на цей ${periodLabel}` : 'План ще не задано'}</small>
       </div>
       <div className="data-card analytics-metric">
         <span>Залишилось до плану</span>
@@ -628,7 +668,7 @@ function AnalyticsPage({ orders }: { orders: OrderBoardItem[] }) {
       <div className="analytics-chart-header">
         <div>
           <small>Динаміка продажів</small>
-          <h3>{period === 'day' ? 'За останні 7 днів' : period === 'week' ? 'За останні 8 тижнів' : 'За останні 6 місяців'}</h3>
+          <h3>{period === 'day' ? 'За останні 7 днів' : period === 'week' ? 'За останні 8 тижнів' : period === 'month' ? 'За останні 6 місяців' : `${shortDate(rangeStart)} – ${shortDate(rangeEnd)}`}</h3>
         </div>
       </div>
       <div className="analytics-chart-wrap">
