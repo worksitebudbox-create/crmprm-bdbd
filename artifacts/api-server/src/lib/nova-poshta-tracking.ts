@@ -14,19 +14,37 @@ export class NovaPoshtaTrackingError extends Error {
 
 function arrivalTimestamp(dateScan: string): string | null {
   const match = dateScan.match(
-    /^(\d{2})\.(\d{2})\.(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?/,
+    /^(?:(\d{2})\.(\d{2})\.(\d{4})|(\d{4})-(\d{2})-(\d{2}))(?:[ T]+(\d{2}):(\d{2})(?::(\d{2}))?)?/,
   );
   if (!match) return null;
 
-  const [, day, month, year, hour = "00", minute = "00", second = "00"] = match;
+  const day = Number(match[1] ?? match[6]);
+  const month = Number(match[2] ?? match[5]);
+  const year = Number(match[3] ?? match[4]);
+  const hour = Number(match[7] ?? "00");
+  const minute = Number(match[8] ?? "00");
+  const second = Number(match[9] ?? "00");
+  if (year < 2000 || month < 1 || month > 12 || day < 1 || day > 31 ||
+    hour > 23 || minute > 59 || second > 59) {
+    return null;
+  }
+
   const localAsUtc = Date.UTC(
-    Number(year),
-    Number(month) - 1,
-    Number(day),
-    Number(hour),
-    Number(minute),
-    Number(second),
+    year,
+    month - 1,
+    day,
+    hour,
+    minute,
+    second,
   );
+  const parsed = new Date(localAsUtc);
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    return null;
+  }
   const offsetLabel = new Intl.DateTimeFormat("en", {
     timeZone: "Europe/Kyiv",
     timeZoneName: "longOffset",
@@ -154,8 +172,15 @@ export async function refreshNovaPoshtaOrderStatus(orderId: number) {
     "DateScan" in tracking && typeof tracking.DateScan === "string"
       ? tracking.DateScan
       : "";
-  const scannedArrival = arrived ? arrivalTimestamp(dateScan) : null;
-  const arrivalDate = scannedArrival ?? order.arrivalDate;
+  const firstDayWaiting =
+    "DateFirstDayWaitingShipment" in tracking &&
+    typeof tracking.DateFirstDayWaitingShipment === "string"
+      ? tracking.DateFirstDayWaitingShipment
+      : "";
+  const arrivalDate =
+    (firstDayWaiting ? arrivalTimestamp(firstDayWaiting) : null) ??
+    (arrived ? arrivalTimestamp(dateScan) : null) ??
+    order.arrivalDate;
 
   if (status === order.deliveryStatus && arrivalDate === order.arrivalDate && (!shouldMarkPaid || order.paymentStatus === "Оплачено")) {
     return order;
