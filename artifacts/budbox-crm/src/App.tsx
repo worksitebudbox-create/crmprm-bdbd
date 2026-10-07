@@ -3,7 +3,7 @@ import type { ElementType, ReactNode, FormEvent } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Session } from '@supabase/supabase-js';
 import {
-  Activity, ArrowDownUp, ArrowRight, BarChart3, Bell, Building2, CalendarClock, Check, ChevronDown, Menu,
+  Activity, ArrowDownUp, ArrowRight, BarChart3, Bell, BellRing, Building2, CalendarClock, Check, ChevronDown, Menu,
   ChevronRight, CircleAlert, ClipboardList, Copy, CreditCard, Edit3, FileText, Filter,
   Globe, History, LayoutDashboard, Mail, MapPin, MessageCircle, Package, Phone, Plus, Search, Send,
   ShoppingCart,
@@ -218,13 +218,41 @@ type ChatManager = {
   isOnline: boolean;
   lastSeenAt: string | null;
   isSelf: boolean;
+  unreadCount: number;
 };
 type InternalChatMessage = {
   id: number;
   senderUserId: string;
   recipientUserId: string;
   body: string;
+  editedAt?: string | null;
+  readAt?: string | null;
   createdAt: string;
+};
+type ChatNotificationMessage = {
+  id: number;
+  senderUserId: string;
+  senderName: string;
+  body: string;
+  createdAt: string;
+};
+type ChatNotificationsResponse = {
+  unreadCount: number;
+  messages: ChatNotificationMessage[];
+};
+type ChatHistoryResponse = {
+  messages: InternalChatMessage[];
+  hasMore: boolean;
+  nextBeforeId: number | null;
+};
+type ContactSearchResult = {
+  id: number;
+  fullName: string;
+  phone: string | null;
+  email: string | null;
+  role: string | null;
+  companyId: number;
+  companyName: string;
 };
 
 function Field({ label, children, wide = false }: { label: string; children: ReactNode; wide?: boolean }) {
@@ -246,7 +274,7 @@ function Modal({ title, subtitle, children, close }: { title: string; subtitle: 
 }
 function Skeleton({ className = '' }: { className?: string }) { return <div className={`skeleton ${className}`} />; }
 
-function CrmWorkspace({ userEmail, role, isAdmin, onSignOut }: { userEmail: string | null; role: CrmRole; isAdmin: boolean; onSignOut: () => Promise<void> }) {
+function CrmWorkspace({ userEmail, role, isAdmin, onSignOut, chatUnreadCount = 0, notificationsEnabled = false, notificationPermission = 'default', onEnableNotifications }: { userEmail: string | null; role: CrmRole; isAdmin: boolean; onSignOut: () => Promise<void>; chatUnreadCount?: number; notificationsEnabled?: boolean; notificationPermission?: NotificationPermission | 'unsupported'; onEnableNotifications?: () => void }) {
   const qc = useQueryClient();
   const [, navigate] = useLocation();
   const [railOpen, setRailOpen] = useState(true);
@@ -338,11 +366,60 @@ function CrmWorkspace({ userEmail, role, isAdmin, onSignOut }: { userEmail: stri
     };
     if (!payload.name) return flash('Вкажіть назву компанії', 'error');
     const done = (item: CompanyDetail) => { setSelectedId(item.id); localStorage.setItem('budbox-selected-company', String(item.id)); close(); void refresh(item.id); flash(edit ? 'Картку компанії оновлено' : 'Компанію додано до черги'); };
+    const finishCreation = async (item: CompanyDetail) => {
+      if (form.responsibleContactId) {
+        try {
+          await customFetch<void>(`/api/companies/${item.id}/responsible-contact`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contactId: Number(form.responsibleContactId) }),
+          });
+          done(item);
+        } catch (error) {
+          console.error('Company was created but contact linking failed', error);
+          setSelectedId(item.id);
+          localStorage.setItem('budbox-selected-company', String(item.id));
+          close();
+          void refresh(item.id);
+          flash('Компанію створено, але контакт не вдалося прив’язати. Додайте його у вкладці «Контакти».', 'error');
+        }
+        return;
+      }
+      const contactName = form.responsibleContactName?.trim();
+      const contactPhone = form.responsibleContactPhone?.trim();
+      if (!contactName && !contactPhone) {
+        done(item);
+        return;
+      }
+      if (!contactName || !contactPhone) {
+        close();
+        setSelectedId(item.id);
+        localStorage.setItem('budbox-selected-company', String(item.id));
+        void refresh(item.id);
+        flash('Компанію створено, але потрібно заповнити і ПІБ, і телефон відповідального контакту.', 'error');
+        return;
+      }
+      createContact.mutate({
+        companyId: item.id,
+        data: { fullName: contactName, phone: contactPhone, role: 'Відповідальний клієнт', email: null, telegram: null, viber: null },
+      }, {
+        onSuccess: () => done(item),
+        onError: () => {
+          close();
+          setSelectedId(item.id);
+          localStorage.setItem('budbox-selected-company', String(item.id));
+          void refresh(item.id);
+          flash('Компанію створено, але відповідального контакту не вдалося додати.', 'error');
+        },
+      });
+    };
     if (edit && activeId) updateCompany.mutate({
       companyId: activeId,
       data: { ...payload, ...(roleCanAssignClients(role) ? { manager: form.manager?.trim() || currentManager } : {}) } as CompanyUpdate,
     }, { onSuccess: done, onError: () => flash('Не вдалося оновити компанію', 'error') });
-    else createCompany.mutate({ data: { ...payload, manager: currentManager } as CompanyInput }, { onSuccess: done, onError: () => flash('Не вдалося створити компанію', 'error') });
+    else if ((form.responsibleContactName?.trim() && !form.responsibleContactPhone?.trim()) || (!form.responsibleContactName?.trim() && form.responsibleContactPhone?.trim())) {
+      flash('Щоб додати нового відповідального, вкажіть і ПІБ, і номер телефону.', 'error');
+    } else createCompany.mutate({ data: { ...payload, manager: currentManager } as CompanyInput }, { onSuccess: (item) => { void finishCreation(item); }, onError: () => flash('Не вдалося створити компанію', 'error') });
   };
   const submitClient = () => {
     const fullName = form.fullName?.trim();
@@ -459,10 +536,10 @@ function CrmWorkspace({ userEmail, role, isAdmin, onSignOut }: { userEmail: stri
   const profileDisplayName = getPrimaryDisplayName(userEmail, 'Робочий акаунт');
 
   return <div className="bb-app">
-    <header className="topbar"><button data-testid="button-hamburger" className="icon-button hamburger" aria-label="Перемкнути навігацію" aria-expanded={window.innerWidth < 768 ? drawerOpen : railOpen} onClick={() => { if (window.innerWidth < 768) setDrawerOpen(!drawerOpen); else setRailOpen(!railOpen); }}><Menu size={19} /></button><div className="brand"><div className="brand-mark">B</div><div><strong>BUDBOX</strong><small>CRM / ПРОДАЖІ</small></div></div><div className="crumbs"><span>Продажі</span><ChevronRight size={13} /><b>Клієнти</b></div><div className="top-actions"><button aria-label="Сповіщення" aria-expanded={headerPanel === 'notifications'} data-testid="button-notifications" className="icon-button" onClick={() => setHeaderPanel(headerPanel === 'notifications' ? null : 'notifications')}><Bell size={17} />{overdueTasks.length > 0 && <i />}</button><button aria-label="Налаштування" aria-expanded={headerPanel === 'settings'} data-testid="button-settings" className="icon-button" onClick={() => setHeaderPanel(headerPanel === 'settings' ? null : 'settings')}><Settings2 size={17} /></button>    <button aria-label="Профіль і параметри" aria-expanded={headerPanel === 'profile'} className="profile profile-trigger" data-testid="button-profile-menu" onClick={() => setHeaderPanel(headerPanel === 'profile' ? null : 'profile')}><span>{userEmail?.slice(0, 2).toUpperCase() || 'BU'}</span><div><b>{profileDisplayName}</b><small>{userEmail || 'Робочий акаунт'}</small></div><ChevronDown size={14} /></button></div>
-      {headerPanel && <div className="header-popover" data-testid={`panel-${headerPanel}`}><div className="popover-title">{headerPanel === 'notifications' ? 'Потребують уваги' : headerPanel === 'settings' ? 'Налаштування вигляду' : 'Робочий профіль'}<button className="icon-button" onClick={() => setHeaderPanel(null)}><X size={14} /></button></div>{headerPanel === 'notifications' ? taskBoard.isLoading ? <p>Завантаження завдань…</p> : taskBoard.isError ? <p>Не вдалося завантажити сповіщення.</p> : overdueTasks.length ? overdueTasks.slice(0, 5).map((task) => <button className="popover-row" key={task.id} onClick={() => { setHeaderPanel(null); navigate('/tasks'); }}><CircleAlert size={14} /><span><b>{task.title}</b><small>{task.companyName} · {date(task.dueAt)}</small></span></button>) : <p>Прострочених завдань немає.</p> : headerPanel === 'settings' ? <><label className="density-control"><span><b>Компактний список</b><small>Менше вертикальних відступів у черзі</small></span><input data-testid="toggle-compact-density" type="checkbox" checked={compact} onChange={toggleCompact} /></label><DisplayNameEditor initialName={savedDisplayName} onSave={saveDisplayName} /></> : <><p>{userEmail || 'Робочий акаунт'}</p><button className="popover-row" onClick={() => { setHeaderPanel('settings'); }}><SlidersHorizontal size={14} /><span><b>Параметри робочого простору</b><small>Налаштування локальні для цього браузера</small></span></button><button className="popover-row auth-signout-row" onClick={() => { setHeaderPanel(null); void onSignOut().catch(() => flash('Не вдалося вийти з акаунта', 'error')); }}><LogOut size={14} /><span><b>Вийти з акаунта</b><small>Завершити поточний сеанс CRM</small></span></button></>}</div>}
+    <header className="topbar"><button data-testid="button-hamburger" className="icon-button hamburger" aria-label="Перемкнути навігацію" aria-expanded={window.innerWidth < 768 ? drawerOpen : railOpen} onClick={() => { if (window.innerWidth < 768) setDrawerOpen(!drawerOpen); else setRailOpen(!railOpen); }}><Menu size={19} /></button><div className="brand"><div className="brand-mark">B</div><div><strong>BUDBOX</strong><small>CRM / ПРОДАЖІ</small></div></div><div className="crumbs"><span>Продажі</span><ChevronRight size={13} /><b>Клієнти</b></div><div className="top-actions"><button aria-label="Сповіщення" aria-expanded={headerPanel === 'notifications'} data-testid="button-notifications" className="icon-button" onClick={() => setHeaderPanel(headerPanel === 'notifications' ? null : 'notifications')}><Bell size={17} />{(overdueTasks.length > 0 || chatUnreadCount > 0) && <i />}</button><button aria-label="Налаштування" aria-expanded={headerPanel === 'settings'} data-testid="button-settings" className="icon-button" onClick={() => setHeaderPanel(headerPanel === 'settings' ? null : 'settings')}><Settings2 size={17} /></button>    <button aria-label="Профіль і параметри" aria-expanded={headerPanel === 'profile'} className="profile profile-trigger" data-testid="button-profile-menu" onClick={() => setHeaderPanel(headerPanel === 'profile' ? null : 'profile')}><span>{userEmail?.slice(0, 2).toUpperCase() || 'BU'}</span><div><b>{profileDisplayName}</b><small>{userEmail || 'Робочий акаунт'}</small></div><ChevronDown size={14} /></button></div>
+      {headerPanel && <div className="header-popover" data-testid={`panel-${headerPanel}`}><div className="popover-title">{headerPanel === 'notifications' ? 'Потребують уваги' : headerPanel === 'settings' ? 'Налаштування вигляду' : 'Робочий профіль'}<button className="icon-button" onClick={() => setHeaderPanel(null)}><X size={14} /></button></div>{headerPanel === 'notifications' ? taskBoard.isLoading ? <p>Завантаження завдань…</p> : taskBoard.isError ? <p>Не вдалося завантажити сповіщення.</p> : overdueTasks.length ? overdueTasks.slice(0, 5).map((task) => <button className="popover-row" key={task.id} onClick={() => { setHeaderPanel(null); navigate('/tasks'); }}><CircleAlert size={14} /><span><b>{task.title}</b><small>{task.companyName} · {date(task.dueAt)}</small></span></button>) : <p>Прострочених завдань немає.</p> : headerPanel === 'settings' ? <><label className="density-control"><span><b>Компактний список</b><small>Менше вертикальних відступів у черзі</small></span><input data-testid="toggle-compact-density" type="checkbox" checked={compact} onChange={toggleCompact} /></label><DisplayNameEditor initialName={savedDisplayName} onSave={saveDisplayName} /><div className="browser-notification-setting"><span><BellRing size={15} /><span><b>Сповіщення про чат</b><small>{notificationPermission === 'unsupported' ? 'Браузер не підтримує сповіщення' : notificationPermission === 'denied' ? 'Дозвіл заборонено в налаштуваннях браузера' : notificationsEnabled ? 'Увімкнені, поки CRM відкрита' : 'Системні сповіщення про нові повідомлення'}</small></span></span>{notificationPermission !== 'unsupported' && notificationPermission !== 'denied' && <button type="button" className="secondary-button" onClick={onEnableNotifications}>{notificationsEnabled ? 'Вимкнути' : 'Увімкнути'}</button>}</div></> : <><p>{userEmail || 'Робочий акаунт'}</p><button className="popover-row" onClick={() => { setHeaderPanel('settings'); }}><SlidersHorizontal size={14} /><span><b>Параметри робочого простору</b><small>Налаштування локальні для цього браузера</small></span></button><button className="popover-row auth-signout-row" onClick={() => { setHeaderPanel(null); void onSignOut().catch(() => flash('Не вдалося вийти з акаунта', 'error')); }}><LogOut size={14} /><span><b>Вийти з акаунта</b><small>Завершити поточний сеанс CRM</small></span></button></>}</div>}
     </header>
-    <div className={`workspace ${!railOpen ? 'rail-collapsed' : ''}`}><aside className={`rail ${drawerOpen ? 'drawer-open' : ''}`}><NavItems current="/" role={role} isAdmin={isAdmin} navigate={(path) => { navigate(path); setDrawerOpen(false); }} /></aside>{drawerOpen && <button className="drawer-scrim" aria-label="Закрити меню" onClick={() => setDrawerOpen(false)} />}
+    <div className={`workspace ${!railOpen ? 'rail-collapsed' : ''}`}><aside className={`rail ${drawerOpen ? 'drawer-open' : ''}`}><NavItems current="/" role={role} isAdmin={isAdmin} chatUnreadCount={chatUnreadCount} navigate={(path) => { navigate(path); setDrawerOpen(false); }} /></aside>{drawerOpen && <button className="drawer-scrim" aria-label="Закрити меню" onClick={() => setDrawerOpen(false)} />}
       <main className="main"><div className="page-heading"><div><div className="eyebrow"><span /> РОБОЧА ЧЕРГА ПРОДАЖІВ</div><h1>Клієнти <small data-testid="text-company-count">{summaryQuery.data?.totalCompanies ?? companies.length} клієнтів і компаній</small></h1></div><div className="client-heading-actions"><button data-testid="button-new-company" className="secondary-button" onClick={() => open('company')}><Plus size={16} /> <span>Нова компанія</span></button><button data-testid="button-new-client" className="primary-button" onClick={() => open('client', { customerType: retailCustomerType, manager: currentManager, paymentForm: PaymentForm.готівка })}><Plus size={16} /> <span>Новий клієнт</span></button></div></div>
         <div className="summary-strip">{summaryQuery.isLoading ? <><Skeleton /><Skeleton /><Skeleton /><Skeleton /></> : summaryQuery.isError ? <div className="summary-error">Не вдалося завантажити підсумок <button onClick={() => summaryQuery.refetch()}>Повторити</button></div> : <><div><span>КОМПАНІЇ</span><b data-testid="summary-companies">{summaryQuery.data?.totalCompanies ?? 0}</b></div><div><span>АКТИВНІ ЗАМОВЛЕННЯ</span><b data-testid="summary-orders">{summaryQuery.data?.activeOrders ?? 0}</b></div><div><span>ВОРОНКА</span><b data-testid="summary-pipeline">{money(summaryQuery.data?.pipelineValueUah ?? 0)}</b></div><div className="summary-alert"><span>ПРОСТРОЧЕНІ ЗАВДАННЯ</span><b data-testid="summary-overdue">{summaryQuery.data?.overdueTasks ?? 0}</b></div></>}</div>
          <div className="crm-shell"><section className="queue"><div className="queue-head"><div><h2>Черга клієнтів</h2><p>Фізичні особи, компанії та їхні замовлення</p></div><button data-testid="button-sort-companies" className="icon-button" onClick={() => setSortNewest((value) => !value)}><ArrowDownUp size={15} /></button><div className="search-wrap"><Search size={15} /><input data-testid="input-company-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Ім’я, телефон, код або місто" /></div><div className="filter-row">{filters.map((item) => <button data-testid={`filter-${item.value}`} key={item.value} className={filter === item.value ? 'selected' : ''} onClick={() => setFilter(item.value)}>{item.label}</button>)}</div></div><div className="queue-labels"><span>КЛІЄНТ / ТИП</span><span>ЕТАП / СУМА</span></div><div className="company-list bb-scroll">{companiesQuery.isLoading ? <>{[1, 2, 3, 4].map((item) => <div key={item} className="company-skeleton"><Skeleton /><Skeleton /><Skeleton /></div>)}</> : companiesQuery.isError ? <div className="empty-state"><CircleAlert size={22} /><b>Не вдалося завантажити клієнтів</b><button onClick={() => companiesQuery.refetch()}>Повторити</button></div> : sorted.length ? sorted.map((company) => <CompanyRow key={company.id} company={company} active={company.id === activeId} select={() => { setSelectedId(company.id); localStorage.setItem('budbox-selected-company', String(company.id)); setTab('Огляд'); }} />) : companies.length === 0 && !query && filter === GetCompaniesFilter.all ? <div className="empty-state"><UsersRound size={24} /><b>Клієнтів ще немає</b><span>Створіть картку клієнта або компанії.</span><button data-testid="button-create-first-company" onClick={() => open('client', { customerType: retailCustomerType, manager: currentManager, paymentForm: PaymentForm.готівка, channel: 'Instagram Direct' })}>Створити клієнта</button></div> : <div className="empty-state"><Search size={23} /><b>Нічого не знайдено</b><span>Змініть пошук або фільтр</span><button onClick={() => { setQuery(''); setFilter(GetCompaniesFilter.all); }}>Скинути фільтри</button></div>}</div><div className="queue-foot"><span>Показано {sorted.length} із {companies.length}</span><button onClick={() => { setQuery(''); setFilter(GetCompaniesFilter.all); }}>Скинути</button></div></section>
@@ -487,13 +564,13 @@ const navigation = [
   { path: '/warehouse', label: 'Склад', icon: Package, id: 'nav-warehouse' },
   { path: '/activity', label: 'Активність', icon: Activity, id: 'nav-activity' },
 ];
-function NavItems({ current, role, isAdmin, navigate }: { current: string; role: CrmRole; isAdmin: boolean; navigate?: (path: string) => void }) {
+function NavItems({ current, role, isAdmin, navigate, chatUnreadCount = 0 }: { current: string; role: CrmRole; isAdmin: boolean; navigate?: (path: string) => void; chatUnreadCount?: number }) {
   const pageForPath: Record<string, string> = { '/': 'clients', '/overview': 'overview', '/tasks': 'tasks', '/chat': 'chat', '/orders': 'orders', '/analytics': 'analytics', '/warehouse': 'warehouse', '/activity': 'activity' };
   const items = [
     ...navigation.filter(({ path }) => roleCanAccessPage(role, pageForPath[path] ?? '')),
     ...(isAdmin ? [{ path: '/admin', label: 'Адмінка', icon: ShieldCheck, id: 'nav-admin' }] : []),
   ];
-  return <>{items.map(({ path, label, icon: Icon, id }) => <Link key={path} href={path} aria-label={label} title={label} data-testid={id} className={`nav-link ${current === path ? 'active' : ''}`} onClick={() => navigate?.(path)}><Icon size={18} /><span>{label}</span></Link>)}</>;
+  return <>{items.map(({ path, label, icon: Icon, id }) => <Link key={path} href={path} aria-label={label} title={label} data-testid={id} className={`nav-link ${current === path ? 'active' : ''}`} onClick={() => navigate?.(path)}><Icon size={18} /><span>{label}</span>{path === '/chat' && chatUnreadCount > 0 && <em className="nav-unread-badge">{chatUnreadCount > 99 ? '99+' : chatUnreadCount}</em>}</Link>)}</>;
 }
 
 type AnalyticsPeriod = 'day' | 'week' | 'month' | 'range';
@@ -756,7 +833,7 @@ function AnalyticsPage({ orders }: { orders: OrderBoardItem[] }) {
   </section>;
 }
 
-function GlobalPage({ page, userEmail, userId, role, isAdmin, onSignOut, presenceError = '' }: { page: 'overview' | 'tasks' | 'orders' | 'warehouse' | 'activity' | 'analytics' | 'admin' | 'chat'; userEmail: string | null; userId: string; role: CrmRole; isAdmin: boolean; onSignOut: () => Promise<void>; presenceError?: string }) {
+function GlobalPage({ page, userEmail, userId, role, isAdmin, onSignOut, presenceError = '', chatUnreadCount = 0, notificationsEnabled = false, notificationPermission = 'default', onEnableNotifications }: { page: 'overview' | 'tasks' | 'orders' | 'warehouse' | 'activity' | 'analytics' | 'admin' | 'chat'; userEmail: string | null; userId: string; role: CrmRole; isAdmin: boolean; onSignOut: () => Promise<void>; presenceError?: string; chatUnreadCount?: number; notificationsEnabled?: boolean; notificationPermission?: NotificationPermission | 'unsupported'; onEnableNotifications?: () => void }) {
   const qc = useQueryClient();
   const [, navigate] = useLocation();
   const [railOpen, setRailOpen] = useState(true);
@@ -986,9 +1063,9 @@ function GlobalPage({ page, userEmail, userId, role, isAdmin, onSignOut, presenc
   const loadingForPage = page === 'tasks' ? tasks.isLoading : page === 'orders' ? orders.isLoading : page === 'activity' ? activity.isLoading : page === 'analytics' ? orders.isLoading : page === 'overview' ? summary.isLoading || tasks.isLoading || orders.isLoading || activity.isLoading : page === 'admin' ? summary.isLoading || orders.isLoading : false;
   return <div className="bb-app global-app">
     <header className="topbar"><button data-testid="button-hamburger" className="icon-button hamburger" aria-label="Перемкнути навігацію" aria-expanded={window.innerWidth < 768 ? drawerOpen : railOpen} onClick={() => { if (window.innerWidth < 768) setDrawerOpen(!drawerOpen); else setRailOpen(!railOpen); }}><Menu size={19} /></button><div className="brand"><div className="brand-mark">B</div><div><strong>BUDBOX</strong><small>CRM / ПРОДАЖІ</small></div></div><div className="crumbs"><span>Продажі</span><ChevronRight size={13} /><b>{pageTitle}</b></div><div className="top-actions"><button aria-label="Сповіщення" aria-expanded={panel === 'notifications'} className="icon-button" data-testid="button-notifications" onClick={() => setPanel(panel === 'notifications' ? null : 'notifications')}><Bell size={17} />{overdueRows.length > 0 && <i />}</button><button aria-label="Налаштування" aria-expanded={panel === 'settings'} className="icon-button" data-testid="button-settings" onClick={() => setPanel(panel === 'settings' ? null : 'settings')}><Settings2 size={17} /></button><button aria-label="Профіль і параметри" aria-expanded={panel === 'profile'} className="profile profile-trigger" data-testid="button-profile-menu" onClick={() => setPanel(panel === 'profile' ? null : 'profile')}><span>{userEmail?.slice(0, 2).toUpperCase() || 'BU'}</span><div><b>{profileDisplayName}</b><small>{userEmail || 'Робочий акаунт'}</small></div><ChevronDown size={14} /></button></div>
-      {panel && <div className="header-popover" data-testid={`panel-${panel}`}><div className="popover-title">{panel === 'notifications' ? 'Потребують уваги' : panel === 'settings' ? 'Налаштування вигляду' : 'Робочий профіль'}<button className="icon-button" onClick={() => setPanel(null)}><X size={14} /></button></div>{panel === 'notifications' ? tasks.isLoading ? <p>Завантаження завдань…</p> : tasks.isError ? <p>Не вдалося завантажити сповіщення.</p> : overdueRows.length ? overdueRows.slice(0, 5).map((task) => <button className="popover-row" key={task.id} onClick={() => { setPanel(null); navigate('/tasks'); }}><CircleAlert size={14} /><span><b>{task.title}</b><small>{task.companyName} · {date(task.dueAt)}</small></span></button>) : <p>Прострочених завдань немає.</p> : panel === 'settings' ? <><label className="density-control"><span><b>Компактний список</b><small>Менше вертикальних відступів у списках</small></span><input data-testid="toggle-compact-density" type="checkbox" checked={compact} onChange={setDensity} /></label><DisplayNameEditor initialName={savedDisplayName} onSave={saveDisplayName} /></> : <><p>{userEmail || 'Робочий акаунт'}</p><button className="popover-row" onClick={() => setPanel('settings')}><SlidersHorizontal size={14} /><span><b>Налаштування вигляду</b><small>Зберігаються локально у цьому браузері</small></span></button><button className="popover-row auth-signout-row" onClick={() => { setPanel(null); void onSignOut().catch(() => { setNoticeIsError(true); setNotice('Не вдалося вийти з акаунта'); }); }}><LogOut size={14} /><span><b>Вийти з акаунта</b><small>Завершити поточний сеанс CRM</small></span></button></>}</div>}
+      {panel && <div className="header-popover" data-testid={`panel-${panel}`}><div className="popover-title">{panel === 'notifications' ? 'Потребують уваги' : panel === 'settings' ? 'Налаштування вигляду' : 'Робочий профіль'}<button className="icon-button" onClick={() => setPanel(null)}><X size={14} /></button></div>{panel === 'notifications' ? tasks.isLoading ? <p>Завантаження завдань…</p> : tasks.isError ? <p>Не вдалося завантажити сповіщення.</p> : overdueRows.length ? overdueRows.slice(0, 5).map((task) => <button className="popover-row" key={task.id} onClick={() => { setPanel(null); navigate('/tasks'); }}><CircleAlert size={14} /><span><b>{task.title}</b><small>{task.companyName} · {date(task.dueAt)}</small></span></button>) : <p>Прострочених завдань немає.</p> : panel === 'settings' ? <><label className="density-control"><span><b>Компактний список</b><small>Менше вертикальних відступів у списках</small></span><input data-testid="toggle-compact-density" type="checkbox" checked={compact} onChange={setDensity} /></label><DisplayNameEditor initialName={savedDisplayName} onSave={saveDisplayName} /><div className="browser-notification-setting"><span><BellRing size={15} /><span><b>Сповіщення про чат</b><small>{notificationPermission === 'unsupported' ? 'Браузер не підтримує сповіщення' : notificationPermission === 'denied' ? 'Дозвіл заборонено в налаштуваннях браузера' : notificationsEnabled ? 'Увімкнені, поки CRM відкрита' : 'Системні сповіщення про нові повідомлення'}</small></span></span>{notificationPermission !== 'unsupported' && notificationPermission !== 'denied' && <button type="button" className="secondary-button" onClick={onEnableNotifications}>{notificationsEnabled ? 'Вимкнути' : 'Увімкнути'}</button>}</div></> : <><p>{userEmail || 'Робочий акаунт'}</p><button className="popover-row" onClick={() => setPanel('settings')}><SlidersHorizontal size={14} /><span><b>Налаштування вигляду</b><small>Зберігаються локально у цьому браузері</small></span></button><button className="popover-row auth-signout-row" onClick={() => { setPanel(null); void onSignOut().catch(() => { setNoticeIsError(true); setNotice('Не вдалося вийти з акаунта'); }); }}><LogOut size={14} /><span><b>Вийти з акаунта</b><small>Завершити поточний сеанс CRM</small></span></button></>}</div>}
     </header>
-    <div className={`workspace ${railOpen ? '' : 'rail-collapsed'}`}><aside className={`rail ${drawerOpen ? 'drawer-open' : ''}`}><NavItems current={page === 'overview' ? '/overview' : `/${page}`} role={role} isAdmin={isAdmin} navigate={() => setDrawerOpen(false)} /></aside>{drawerOpen && <button className="drawer-scrim" aria-label="Закрити меню" onClick={() => setDrawerOpen(false)} />}
+    <div className={`workspace ${railOpen ? '' : 'rail-collapsed'}`}><aside className={`rail ${drawerOpen ? 'drawer-open' : ''}`}><NavItems current={page === 'overview' ? '/overview' : `/${page}`} role={role} isAdmin={isAdmin} chatUnreadCount={chatUnreadCount} navigate={() => setDrawerOpen(false)} /></aside>{drawerOpen && <button className="drawer-scrim" aria-label="Закрити меню" onClick={() => setDrawerOpen(false)} />}
         <main className="main global-main"><div className="page-heading"><div><div className="eyebrow"><span /> РОБОЧИЙ ПРОСТІР ПРОДАЖІВ</div><h1 data-testid="text-page-title">{pageTitle}</h1></div>{page === 'tasks' && roleCanManageCrmData(role) ? <button data-testid="button-new-task" className="primary-button" onClick={() => openForm('task')}><Plus size={15} /> Нове завдання</button> : page === 'orders' && roleCanManageCrmData(role) ? <button data-testid="button-new-order" className="primary-button" onClick={() => openForm('order')}><Plus size={15} /> Нове замовлення</button> : page === 'activity' && roleCanManageCrmData(role) ? <button data-testid="button-new-activity" className="primary-button" onClick={() => openForm('note')}><Plus size={15} /> Додати запис</button> : null}</div>
         {!loadingForPage && !errorForPage && page === 'chat' && <ChatPage currentUserId={userId} presenceError={presenceError} />}
         {loadingForPage ? <div className="global-loading" data-testid="state-loading">{page === 'orders' ? <div className="orders-loading-grid">{[1, 2, 3, 4, 5, 6].map((n) => <div className="order-card-skeleton" key={n}><Skeleton /><Skeleton /><Skeleton /><Skeleton /></div>)}</div> : [1, 2, 3].map((n) => <div className="global-skeleton" key={n}><Skeleton /><Skeleton /><Skeleton /></div>)}</div> : errorForPage ? <div className="empty-state large" data-testid="state-error"><CircleAlert size={26} /><b>Дані тимчасово недоступні</b><span>Перевірте з’єднання та спробуйте ще раз.</span><button data-testid="button-retry-page" onClick={() => { void summary.refetch(); void tasks.refetch(); void orders.refetch(); void activity.refetch(); }}>Повторити</button></div> : null}
@@ -1471,6 +1548,7 @@ function CompanyForm({ form, setValue, onSubmit, busy, edit, canAssignManager }:
     <Field label="Назва компанії" wide><input autoFocus data-testid="input-company-name" value={form.name || ''} onChange={(event) => setValue('name', event.target.value)} placeholder="ТОВ «Нова Будова»" required /></Field>
     <Field label="Код / ІПН"><input data-testid="input-tax-id" value={form.taxId || ''} onChange={(event) => setValue('taxId', event.target.value)} /></Field>
     <Field label="Тип клієнта"><select value={form.customerType || customerTypes[0]} onChange={(event) => setValue('customerType', event.target.value)}>{customerTypes.map((item) => <option key={item}>{item}</option>)}</select></Field>
+    {!edit && <ResponsibleContactField form={form} setValue={setValue} />}
     <Field label="Місто"><input value={form.city || ''} onChange={(event) => setValue('city', event.target.value)} /></Field>
     {canAssignManager && edit && <Field label="Відповідальний менеджер"><input value={form.manager || ''} onChange={(event) => setValue('manager', event.target.value)} /></Field>}
     <Field label="Склад"><input value={form.warehouse || ''} onChange={(event) => setValue('warehouse', event.target.value)} /></Field>
@@ -1482,6 +1560,55 @@ function CompanyForm({ form, setValue, onSubmit, busy, edit, canAssignManager }:
     <MarketingSourceField form={form} setValue={setValue} />
     <div className="form-actions"><button type="button" className="secondary-button" onClick={() => window.dispatchEvent(new Event('close-modal'))}>Скасувати</button><button data-testid="button-submit-company" className="primary-button" disabled={busy}>{busy ? 'Збереження…' : edit ? 'Зберегти зміни' : 'Створити компанію'}</button></div>
   </form>;
+}
+function ResponsibleContactField({ form, setValue }: { form: Record<string, string>; setValue: (key: string, value: string) => void }) {
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+  const contactQuery = useQuery({
+    queryKey: ['crm-contact-search', debouncedSearch],
+    queryFn: () => customFetch<ContactSearchResult[]>(`/api/crm/contact-search?q=${encodeURIComponent(debouncedSearch)}`),
+    enabled: debouncedSearch.length >= 2 && !form.responsibleContactId,
+    staleTime: 30_000,
+  });
+  const selectContact = (contact: ContactSearchResult) => {
+    setValue('responsibleContactId', String(contact.id));
+    setValue('responsibleContactName', contact.fullName);
+    setValue('responsibleContactPhone', contact.phone || '');
+    setValue('responsibleContactCompanyName', contact.companyName);
+    setSearch('');
+  };
+  const clearContact = () => {
+    setValue('responsibleContactId', '');
+    setValue('responsibleContactName', '');
+    setValue('responsibleContactPhone', '');
+    setValue('responsibleContactCompanyName', '');
+    setSearch('');
+  };
+
+  return <div className="responsible-contact-field field-wide">
+    <div className="responsible-contact-heading"><b>Відповідальний клієнт організації</b><small>Знайдіть контакт за ПІБ/телефоном або створіть новий</small></div>
+    {form.responsibleContactId ? <div className="responsible-contact-selected">
+      <span className="avatar">{initials(form.responsibleContactName || '')}</span>
+      <span><b>{form.responsibleContactName || 'Обраний контакт'}</b><small>{form.responsibleContactPhone || 'Номер не вказано'}{form.responsibleContactCompanyName ? ` · зараз у ${form.responsibleContactCompanyName}` : ''}</small></span>
+      <button type="button" className="text-button" onClick={clearContact}>Змінити</button>
+    </div> : <>
+      <label className="responsible-contact-search">
+        <Search size={15} />
+        <input data-testid="input-responsible-contact-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ПІБ або номер телефону" autoComplete="off" />
+      </label>
+      {search.trim().length >= 2 && <div className="responsible-contact-results">
+        {contactQuery.isFetching ? <small>Шукаємо контакт…</small> : contactQuery.isError ? <div className="manager-select-error" role="alert">Не вдалося знайти контакт. <button type="button" onClick={() => void contactQuery.refetch()}>Повторити</button></div> : contactQuery.data?.length ? contactQuery.data.map((contact) => <button type="button" key={contact.id} onClick={() => selectContact(contact)}><b>{contact.fullName}</b><small>{contact.phone || 'Телефон не вказано'} · клієнт {contact.companyName}</small></button>) : <small>Контактів за цим запитом не знайдено. Додайте його як новий нижче.</small>}
+      </div>}
+      <div className="responsible-contact-new">
+        <Field label="ПІБ нового контакту"><input data-testid="input-new-responsible-contact-name" value={form.responsibleContactName || ''} onChange={(event) => setValue('responsibleContactName', event.target.value)} placeholder="Ім’я та прізвище" /></Field>
+        <Field label="Номер телефону"><input data-testid="input-new-responsible-contact-phone" type="tel" autoComplete="tel" value={form.responsibleContactPhone || ''} onChange={(event) => setValue('responsibleContactPhone', event.target.value)} placeholder="+380…" /></Field>
+      </div>
+    </>}
+  </div>;
 }
 function MarketingSourceField({ form, setValue }: { form: Record<string, string>; setValue: (key: string, value: string) => void }) {
   const source = form.source || '';
@@ -1609,11 +1736,18 @@ function OrderForm({ form, setValue, onSubmit, busy }: { form: Record<string, st
 function TaskForm({ form, setValue, onSubmit, busy }: { form: Record<string, string>; setValue: (key: string, value: string) => void; onSubmit: () => void; busy: boolean }) { return <form className="form-grid" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}><Field label="Що потрібно зробити?" wide><div className="callback-task-input"><input autoFocus data-testid="input-task-title" value={form.title || ''} onChange={(event) => setValue('title', event.target.value)} required placeholder="Зателефонувати щодо оплати" /><button type="button" className="secondary-button" data-testid="button-callback-task" onClick={() => setValue('title', 'Передзвонити клієнту')}><Phone size={13} /> Передзвонити</button></div></Field><Field label="Термін"><input type="datetime-local" value={form.dueAt || ''} onChange={(event) => setValue('dueAt', event.target.value)} /></Field><ManagerSelect value={form.assignee || ''} onChange={(value) => setValue('assignee', value)} /><Submit busy={busy} label="Створити завдання" /></form>; }
 function ChatPage({ currentUserId, presenceError }: { currentUserId: string; presenceError: string }) {
   const qc = useQueryClient();
-  const [selectedUserId, setSelectedUserId] = useState('');
+  const [selectedUserId, setSelectedUserId] = useState(() => sessionStorage.getItem('budbox-chat-selected-user') || '');
   const [draft, setDraft] = useState('');
   const [sendError, setSendError] = useState('');
   const [sending, setSending] = useState(false);
+  const [editingMessageId, setEditingMessageId] = useState<number | null>(null);
+  const [editingDraft, setEditingDraft] = useState('');
+  const [olderMessages, setOlderMessages] = useState<InternalChatMessage[]>([]);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const markedReadChats = useRef(new Set<string>());
+  const historyInitialized = useRef(new Set<string>());
   const managersQuery = useQuery({
     queryKey: ['crm-chat-managers'],
     queryFn: () => customFetch<ChatManager[]>('/api/crm/chat/managers'),
@@ -1624,12 +1758,42 @@ function ChatPage({ currentUserId, presenceError }: { currentUserId: string; pre
   const selectedManager = managers.find((manager) => manager.userId === selectedUserId);
   const messagesQuery = useQuery({
     queryKey: ['crm-chat-messages', currentUserId, selectedUserId],
-    queryFn: () => customFetch<InternalChatMessage[]>(`/api/crm/chat/messages/${encodeURIComponent(selectedUserId)}`),
+    queryFn: () => customFetch<ChatHistoryResponse>(`/api/crm/chat/messages/${encodeURIComponent(selectedUserId)}`),
     enabled: Boolean(selectedManager),
     refetchInterval: 4_000,
     staleTime: 1_000,
   });
-  const messages = messagesQuery.data ?? [];
+  const latestMessages = messagesQuery.data?.messages ?? [];
+  const messages = [...olderMessages, ...latestMessages].filter((message, index, all) => all.findIndex((candidate) => candidate.id === message.id) === index);
+  useEffect(() => {
+    setOlderMessages([]);
+    setHistoryHasMore(false);
+    setEditingMessageId(null);
+    setEditingDraft('');
+    if (selectedUserId) historyInitialized.current.delete(selectedUserId);
+  }, [selectedUserId]);
+  useEffect(() => {
+    const openConversation = (event: Event) => {
+      const userId = (event as CustomEvent<string>).detail;
+      if (!userId) return;
+      setSelectedUserId(userId);
+      setDraft('');
+      setSendError('');
+    };
+    window.addEventListener('crm-open-chat', openConversation);
+    return () => window.removeEventListener('crm-open-chat', openConversation);
+  }, []);
+  useEffect(() => {
+    if (!selectedManager || !messagesQuery.data || historyInitialized.current.has(selectedManager.userId)) return;
+    historyInitialized.current.add(selectedManager.userId);
+    setHistoryHasMore(messagesQuery.data.hasMore);
+  }, [messagesQuery.data, selectedManager]);
+  useEffect(() => {
+    if (!selectedManager || !messagesQuery.isSuccess || markedReadChats.current.has(selectedManager.userId)) return;
+    markedReadChats.current.add(selectedManager.userId);
+    void qc.invalidateQueries({ queryKey: ['crm-chat-notifications'] });
+    void qc.invalidateQueries({ queryKey: ['crm-chat-managers'] });
+  }, [messagesQuery.isSuccess, messagesQuery.dataUpdatedAt, qc, selectedManager]);
   const latestMessageId = messages[messages.length - 1]?.id;
   useEffect(() => {
     if (selectedUserId && !managers.some((manager) => manager.userId === selectedUserId)) setSelectedUserId('');
@@ -1653,6 +1817,8 @@ function ChatPage({ currentUserId, presenceError }: { currentUserId: string; pre
       });
       setDraft('');
       await qc.invalidateQueries({ queryKey: ['crm-chat-messages', currentUserId, selectedManager.userId] });
+      await qc.invalidateQueries({ queryKey: ['crm-chat-notifications'] });
+      await qc.invalidateQueries({ queryKey: ['crm-chat-managers'] });
     } catch (error) {
       setSendError(error instanceof Error ? error.message : 'Не вдалося надіслати повідомлення.');
     } finally {
@@ -1660,15 +1826,63 @@ function ChatPage({ currentUserId, presenceError }: { currentUserId: string; pre
     }
   };
 
+  const loadOlderMessages = async () => {
+    const oldestId = messages[0]?.id;
+    if (!selectedManager || !oldestId || loadingOlder) return;
+    setLoadingOlder(true);
+    setSendError('');
+    try {
+      const history = await customFetch<ChatHistoryResponse>(`/api/crm/chat/messages/${encodeURIComponent(selectedManager.userId)}?beforeId=${oldestId}`);
+      setOlderMessages((current) => [...history.messages, ...current]);
+      setHistoryHasMore(history.hasMore);
+      await qc.invalidateQueries({ queryKey: ['crm-chat-notifications'] });
+      await qc.invalidateQueries({ queryKey: ['crm-chat-managers'] });
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : 'Не вдалося завантажити попередні повідомлення.');
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
+  const saveMessage = async (messageId: number) => {
+    const body = editingDraft.trim();
+    if (!body || !selectedManager) return;
+    setSendError('');
+    try {
+      await customFetch<InternalChatMessage>(`/api/crm/chat/messages/${messageId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body }),
+      });
+      setEditingMessageId(null);
+      setEditingDraft('');
+      await qc.invalidateQueries({ queryKey: ['crm-chat-messages', currentUserId, selectedManager.userId] });
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : 'Не вдалося відредагувати повідомлення.');
+    }
+  };
+  const deleteMessage = async (messageId: number) => {
+    if (!selectedManager || !window.confirm('Видалити це повідомлення назавжди?')) return;
+    setSendError('');
+    try {
+      await customFetch<void>(`/api/crm/chat/messages/${messageId}`, { method: 'DELETE' });
+      await qc.invalidateQueries({ queryKey: ['crm-chat-messages', currentUserId, selectedManager.userId] });
+      await qc.invalidateQueries({ queryKey: ['crm-chat-notifications'] });
+      await qc.invalidateQueries({ queryKey: ['crm-chat-managers'] });
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : 'Не вдалося видалити повідомлення.');
+    }
+  };
+
   const renderManager = (manager: ChatManager) => <button
     type="button"
     className={`chat-manager ${selectedUserId === manager.userId ? 'selected' : ''}`}
     key={manager.userId}
-    onClick={() => { setSelectedUserId(manager.userId); setDraft(''); setSendError(''); }}
+    onClick={() => { setSelectedUserId(manager.userId); sessionStorage.setItem('budbox-chat-selected-user', manager.userId); setDraft(''); setSendError(''); }}
     data-testid={`chat-manager-${manager.userId}`}
   >
     <span className="chat-avatar">{initials(manager.name)}<i className={manager.isOnline ? 'online' : ''} /></span>
     <span className="chat-manager-info"><b>{manager.name}</b><small>{manager.isOnline ? 'Онлайн' : manager.lastSeenAt ? `Був(ла) ${new Intl.DateTimeFormat('uk-UA', { hour: '2-digit', minute: '2-digit' }).format(new Date(manager.lastSeenAt))}` : 'Ще не заходив(ла)'}</small></span>
+    {manager.unreadCount > 0 && <em className="chat-unread-badge">{manager.unreadCount > 99 ? '99+' : manager.unreadCount}</em>}
     <MessageCircle size={15} />
   </button>;
   return <section className="chat-page">
@@ -1685,7 +1899,15 @@ function ChatPage({ currentUserId, presenceError }: { currentUserId: string; pre
       {!selectedManager ? <div className="chat-empty"><MessageCircle size={28} /><b>Внутрішній чат</b><span>Оберіть менеджера зі списку, щоб почати переписку.</span></div> : <>
         <header className="chat-conversation-heading"><span className="chat-avatar">{initials(selectedManager.name)}<i className={selectedManager.isOnline ? 'online' : ''} /></span><div><b>{selectedManager.name}</b><small>{selectedManager.isOnline ? 'Онлайн зараз' : 'Офлайн'}</small></div></header>
         <div className="chat-messages" data-testid="chat-messages">
-          {messagesQuery.isLoading ? <p className="chat-state">Завантаження повідомлень…</p> : messagesQuery.isError ? <div className="chat-error" role="alert">Не вдалося завантажити переписку. <button type="button" onClick={() => void messagesQuery.refetch()}>Повторити</button></div> : messages.length ? messages.map((message) => <article className={`chat-message ${message.senderUserId === currentUserId ? 'mine' : ''}`} key={message.id}><p>{message.body}</p><time>{new Intl.DateTimeFormat('uk-UA', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' }).format(new Date(message.createdAt))}</time></article>) : <div className="chat-empty-inline">Повідомлень ще немає. Напишіть першим.</div>}
+          {messagesQuery.isLoading ? <p className="chat-state">Завантаження повідомлень…</p> : messagesQuery.isError ? <div className="chat-error" role="alert">Не вдалося завантажити переписку. <button type="button" onClick={() => void messagesQuery.refetch()}>Повторити</button></div> : <>
+            {historyHasMore && <button type="button" className="chat-load-older" disabled={loadingOlder} onClick={() => void loadOlderMessages()}>{loadingOlder ? 'Завантажуємо…' : 'Завантажити попередні повідомлення'}</button>}
+            {messages.length ? messages.map((message) => <article className={`chat-message ${message.senderUserId === currentUserId ? 'mine' : ''}`} key={message.id}>
+              {editingMessageId === message.id ? <div className="chat-edit-form"><textarea value={editingDraft} maxLength={4000} rows={3} onChange={(event) => setEditingDraft(event.target.value)} /><div><button type="button" className="secondary-button" onClick={() => { setEditingMessageId(null); setEditingDraft(''); }}>Скасувати</button><button type="button" className="primary-button" disabled={!editingDraft.trim()} onClick={() => void saveMessage(message.id)}>Зберегти</button></div></div> : <p>{message.body}</p>}
+              <div className="chat-message-footer"><time>{message.editedAt && 'ред. · '}{new Intl.DateTimeFormat('uk-UA', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' }).format(new Date(message.createdAt))}{message.senderUserId === currentUserId && message.readAt && ' · Прочитано'}</time>
+                {message.senderUserId === currentUserId && editingMessageId !== message.id && <span className="chat-message-actions"><button type="button" aria-label="Редагувати повідомлення" title="Редагувати" onClick={() => { setEditingMessageId(message.id); setEditingDraft(message.body); }}><Edit3 size={12} /></button><button type="button" aria-label="Видалити повідомлення" title="Видалити" onClick={() => void deleteMessage(message.id)}><X size={13} /></button></span>}
+              </div>
+            </article>) : <div className="chat-empty-inline">Повідомлень ще немає. Напишіть першим.</div>}
+          </>}
           <div ref={messagesEndRef} />
         </div>
         <form className="chat-compose" onSubmit={sendMessage}>
@@ -1744,7 +1966,67 @@ function roleCanAccessPage(role: CrmRole, page: string): boolean {
   }
 }
 function Router({ userEmail, userId, role, isAdmin, onSignOut }: { userEmail: string | null; userId: string; role: CrmRole; isAdmin: boolean; onSignOut: () => Promise<void> }) {
+  const [, navigate] = useLocation();
   const [presenceError, setPresenceError] = useState('');
+  const [notificationEnabled, setNotificationEnabled] = useState(() => localStorage.getItem('budbox-chat-notifications') === 'true');
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(() => typeof Notification === 'undefined' ? 'unsupported' : Notification.permission);
+  const notifiedMessageIds = useRef<Set<number> | null>(null);
+  const chatNotifications = useQuery({
+    queryKey: ['crm-chat-notifications', userId],
+    queryFn: () => customFetch<ChatNotificationsResponse>('/api/crm/chat/notifications'),
+    enabled: roleCanAccessPage(role, 'chat'),
+    refetchInterval: 10_000,
+    refetchIntervalInBackground: true,
+    staleTime: 3_000,
+  });
+  const incomingNotifications = chatNotifications.data?.messages ?? [];
+  const unreadChatCount = chatNotifications.data?.unreadCount ?? 0;
+  useEffect(() => {
+    if (!chatNotifications.data) return;
+    const messages = incomingNotifications;
+    const messageIds = new Set(messages.map((message) => message.id));
+    if (notifiedMessageIds.current === null) {
+      notifiedMessageIds.current = messageIds;
+      return;
+    }
+    const freshMessages = messages.filter((message) => !notifiedMessageIds.current?.has(message.id));
+    notifiedMessageIds.current = messageIds;
+    if (!notificationEnabled || notificationPermission !== 'granted') return;
+    for (const message of freshMessages) {
+      const notification = new Notification(`Нове повідомлення від ${message.senderName}`, {
+        body: message.body.slice(0, 180),
+        tag: `crm-chat-${message.id}`,
+        icon: '/favicon.ico',
+      });
+      notification.onclick = () => {
+        sessionStorage.setItem('budbox-chat-selected-user', message.senderUserId);
+        window.dispatchEvent(new CustomEvent('crm-open-chat', { detail: message.senderUserId }));
+        window.focus();
+        navigate('/chat');
+        notification.close();
+      };
+    }
+  }, [chatNotifications.data, notificationEnabled, notificationPermission, navigate]);
+  const enableNotifications = async () => {
+    if (notificationEnabled) {
+      setNotificationEnabled(false);
+      localStorage.setItem('budbox-chat-notifications', 'false');
+      return;
+    }
+    if (typeof Notification === 'undefined') {
+      setNotificationPermission('unsupported');
+      return;
+    }
+    try {
+      const permission = await Notification.requestPermission();
+      setNotificationPermission(permission);
+      const enabled = permission === 'granted';
+      setNotificationEnabled(enabled);
+      localStorage.setItem('budbox-chat-notifications', String(enabled));
+    } catch (error) {
+      console.error('Could not request browser notification permission', error);
+    }
+  };
   useEffect(() => {
     if (!roleCanAccessPage(role, 'chat')) return;
     let cancelled = false;
@@ -1780,10 +2062,10 @@ function Router({ userEmail, userId, role, isAdmin, onSignOut }: { userEmail: st
   }, [role, userId]);
   const globalPage = (page: 'overview' | 'tasks' | 'orders' | 'warehouse' | 'activity' | 'analytics' | 'admin' | 'chat') =>
     roleCanAccessPage(role, page === 'admin' ? 'admin' : page) || (page === 'admin' && isAdmin)
-      ? <GlobalPage page={page} userEmail={userEmail} userId={userId} role={role} isAdmin={isAdmin} onSignOut={onSignOut} presenceError={presenceError} />
+      ? <GlobalPage page={page} userEmail={userEmail} userId={userId} role={role} isAdmin={isAdmin} onSignOut={onSignOut} presenceError={presenceError} chatUnreadCount={unreadChatCount} notificationsEnabled={notificationEnabled && notificationPermission === 'granted'} notificationPermission={notificationPermission} onEnableNotifications={() => void enableNotifications()} />
       : <NotFound />;
   return <RoutedErrorBoundary><Switch>
-    <Route path="/">{roleCanAccessPage(role, 'clients') ? <CrmWorkspace userEmail={userEmail} role={role} isAdmin={isAdmin} onSignOut={onSignOut} /> : <NotFound />}</Route>
+    <Route path="/">{roleCanAccessPage(role, 'clients') ? <CrmWorkspace userEmail={userEmail} role={role} isAdmin={isAdmin} onSignOut={onSignOut} chatUnreadCount={unreadChatCount} notificationsEnabled={notificationEnabled && notificationPermission === 'granted'} notificationPermission={notificationPermission} onEnableNotifications={() => void enableNotifications()} /> : <NotFound />}</Route>
     <Route path="/overview">{globalPage('overview')}</Route>
     <Route path="/tasks">{globalPage('tasks')}</Route>
     <Route path="/orders">{globalPage('orders')}</Route>

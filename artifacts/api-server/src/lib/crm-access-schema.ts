@@ -39,8 +39,15 @@ export async function ensureCrmAccessSchema(): Promise<void> {
       sender_user_id TEXT NOT NULL,
       recipient_user_id TEXT NOT NULL,
       body TEXT NOT NULL,
+      edited_at TIMESTAMPTZ,
+      read_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `);
+  await pool.query(`
+    ALTER TABLE crm_chat_messages
+      ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ
   `);
   await pool.query(`
     CREATE INDEX IF NOT EXISTS crm_chat_messages_conversation_idx
@@ -49,6 +56,18 @@ export async function ensureCrmAccessSchema(): Promise<void> {
   await pool.query(`
     CREATE INDEX IF NOT EXISTS crm_chat_messages_recipient_idx
       ON crm_chat_messages (recipient_user_id, created_at)
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS crm_company_contact_links (
+      company_id INTEGER NOT NULL REFERENCES crm_companies(id) ON DELETE CASCADE,
+      contact_id INTEGER NOT NULL REFERENCES crm_contacts(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT crm_company_contact_links_pk PRIMARY KEY (company_id, contact_id)
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS crm_company_contact_links_contact_idx
+      ON crm_company_contact_links (contact_id)
   `);
   await pool.query(`
     CREATE INDEX IF NOT EXISTS crm_admin_audit_logs_created_at_idx

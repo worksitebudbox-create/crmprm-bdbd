@@ -7,6 +7,8 @@ export const chatMessagesTable = pgTable(
     senderUserId: text("sender_user_id").notNull(),
     recipientUserId: text("recipient_user_id").notNull(),
     body: text("body").notNull(),
+    editedAt: timestamp("edited_at", { withTimezone: true }),
+    readAt: timestamp("read_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

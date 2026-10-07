@@ -1,4 +1,4 @@
-import { and, desc, eq, ilike, inArray, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { Router, type IRouter, type Response } from "express";
 import { z } from "zod";
 import {
@@ -38,6 +38,7 @@ import {
   adminAuditLogsTable,
   activitiesTable,
   analyticsSettingsTable,
+  companyContactLinksTable,
   companiesTable,
   contactsTable,
   chatMessagesTable,
@@ -185,8 +186,13 @@ async function getCompanyDetail(companyId: number, managerScope: string[] | null
 
   if (!company) return null;
 
-  const [contacts, orders, tasks, activity] = await Promise.all([
+  const [contacts, linkedContacts, orders, tasks, activity] = await Promise.all([
     db.select().from(contactsTable).where(eq(contactsTable.companyId, companyId)).orderBy(desc(contactsTable.createdAt)),
+    db.select({ contact: contactsTable })
+      .from(companyContactLinksTable)
+      .innerJoin(contactsTable, eq(companyContactLinksTable.contactId, contactsTable.id))
+      .where(eq(companyContactLinksTable.companyId, companyId))
+      .orderBy(desc(contactsTable.createdAt)),
     db.select().from(ordersTable).where(eq(ordersTable.companyId, companyId)).orderBy(desc(ordersTable.createdAt)),
     db.select().from(tasksTable).where(eq(tasksTable.companyId, companyId)).orderBy(desc(tasksTable.createdAt)),
     db.select().from(activitiesTable).where(eq(activitiesTable.companyId, companyId)).orderBy(desc(activitiesTable.createdAt)),
@@ -194,7 +200,9 @@ async function getCompanyDetail(companyId: number, managerScope: string[] | null
 
   return {
     ...toCompany(company),
-    contacts: contacts.map(toContact),
+    contacts: [...contacts, ...linkedContacts.map(({ contact }) => contact)]
+      .filter((contact, index, all) => all.findIndex((candidate) => candidate.id === contact.id) === index)
+      .map(toContact),
     orders: orders.map(toOrder),
     tasks: tasks.map(toTask),
     activity: activity.map(toActivity),
@@ -484,10 +492,25 @@ router.get("/crm/order-customer-search", async (req, res): Promise<void> => {
     ? sql`regexp_replace(coalesce(${contactsTable.phone}, ''), '[^0-9]', '', 'g') LIKE ${`%${digits}%`}`
     : undefined;
 
-  const [contactMatches, companyMatches] = await Promise.all([
+  const [contactMatches, linkedContactMatches, companyMatches] = await Promise.all([
     db.select({ company: companiesTable, contact: contactsTable })
       .from(contactsTable)
       .innerJoin(companiesTable, eq(contactsTable.companyId, companiesTable.id))
+      .where(and(
+        or(
+          ilike(contactsTable.fullName, pattern),
+          ilike(contactsTable.phone, pattern),
+          phoneSearchCondition,
+          companySearchCondition,
+        ),
+        managerScopeCondition(managerScope),
+      ))
+      .orderBy(desc(contactsTable.createdAt))
+      .limit(30),
+    db.select({ company: companiesTable, contact: contactsTable })
+      .from(companyContactLinksTable)
+      .innerJoin(contactsTable, eq(companyContactLinksTable.contactId, contactsTable.id))
+      .innerJoin(companiesTable, eq(companyContactLinksTable.companyId, companiesTable.id))
       .where(and(
         or(
           ilike(contactsTable.fullName, pattern),
@@ -506,9 +529,11 @@ router.get("/crm/order-customer-search", async (req, res): Promise<void> => {
       .limit(20),
   ]);
 
-  const matchedCompanyIds = new Set(contactMatches.map(({ company }) => company.id));
+  const allContactMatches = [...contactMatches, ...linkedContactMatches]
+    .filter(({ company, contact }, index, all) => all.findIndex((item) => item.company.id === company.id && item.contact.id === contact.id) === index);
+  const matchedCompanyIds = new Set(allContactMatches.map(({ company }) => company.id));
   const results = [
-    ...contactMatches.map(({ company, contact }) => ({
+    ...allContactMatches.map(({ company, contact }) => ({
       companyId: company.id,
       companyName: company.name,
       taxId: company.taxId,
@@ -571,20 +596,33 @@ router.get("/crm/managers", async (_req, res): Promise<void> => {
 
 router.get("/crm/chat/managers", async (req, res): Promise<void> => {
   const actor = getAuthenticatedUser(res);
-  const managers = await db
-    .select({
-      userId: crmUserAccessTable.userId,
-      email: crmUserAccessTable.email,
-      role: crmUserAccessTable.role,
-      displayName: crmUserAccessTable.displayName,
-      lastSeenAt: crmUserAccessTable.lastSeenAt,
+  const [managers, unreadRows] = await Promise.all([
+    db
+      .select({
+        userId: crmUserAccessTable.userId,
+        email: crmUserAccessTable.email,
+        role: crmUserAccessTable.role,
+        displayName: crmUserAccessTable.displayName,
+        lastSeenAt: crmUserAccessTable.lastSeenAt,
+      })
+      .from(crmUserAccessTable)
+      .where(and(
+        eq(crmUserAccessTable.isActive, true),
+        inArray(crmUserAccessTable.role, [...chatRoles]),
+      ))
+      .orderBy(crmUserAccessTable.email),
+    db.select({
+      senderUserId: chatMessagesTable.senderUserId,
+      count: sql<number>`count(*)::int`,
     })
-    .from(crmUserAccessTable)
-    .where(and(
-      eq(crmUserAccessTable.isActive, true),
-      inArray(crmUserAccessTable.role, [...chatRoles]),
-    ))
-    .orderBy(crmUserAccessTable.email);
+      .from(chatMessagesTable)
+      .where(and(
+        eq(chatMessagesTable.recipientUserId, actor.id),
+        isNull(chatMessagesTable.readAt),
+      ))
+      .groupBy(chatMessagesTable.senderUserId),
+  ]);
+  const unreadBySender = new Map(unreadRows.map((row) => [row.senderUserId, row.count]));
 
   res.json(managers.map((manager) => ({
     userId: manager.userId,
@@ -594,7 +632,44 @@ router.get("/crm/chat/managers", async (req, res): Promise<void> => {
     isOnline: Boolean(manager.lastSeenAt && Date.now() - manager.lastSeenAt.getTime() <= onlineWindowMs),
     lastSeenAt: iso(manager.lastSeenAt),
     isSelf: manager.userId === actor.id,
+    unreadCount: unreadBySender.get(manager.userId) ?? 0,
   })));
+});
+
+router.get("/crm/chat/notifications", async (_req, res): Promise<void> => {
+  const actor = getAuthenticatedUser(res);
+  const [messages, [unreadCountRow]] = await Promise.all([db
+    .select({
+      id: chatMessagesTable.id,
+      senderUserId: chatMessagesTable.senderUserId,
+      senderEmail: crmUserAccessTable.email,
+      senderDisplayName: crmUserAccessTable.displayName,
+      body: chatMessagesTable.body,
+      createdAt: chatMessagesTable.createdAt,
+    })
+    .from(chatMessagesTable)
+    .innerJoin(crmUserAccessTable, eq(chatMessagesTable.senderUserId, crmUserAccessTable.userId))
+    .where(and(
+      eq(chatMessagesTable.recipientUserId, actor.id),
+      isNull(chatMessagesTable.readAt),
+      eq(crmUserAccessTable.isActive, true),
+      inArray(crmUserAccessTable.role, [...chatRoles]),
+    ))
+    .orderBy(desc(chatMessagesTable.createdAt), desc(chatMessagesTable.id))
+    .limit(50), db.select({ count: sql<number>`count(*)::int` })
+    .from(chatMessagesTable)
+    .where(and(
+      eq(chatMessagesTable.recipientUserId, actor.id),
+      isNull(chatMessagesTable.readAt),
+    ))]);
+  res.json({
+    unreadCount: unreadCountRow?.count ?? 0,
+    messages: messages.map((message) => ({
+      ...message,
+      senderName: message.senderDisplayName?.trim() || message.senderEmail.split("@")[0] || message.senderEmail,
+      createdAt: message.createdAt.toISOString(),
+    })),
+  });
 });
 
 router.post("/crm/chat/presence", async (req, res): Promise<void> => {
@@ -652,10 +727,21 @@ router.get("/crm/chat/messages/:userId", async (req, res): Promise<void> => {
     return;
   }
 
-  const messages = await db
-    .select()
-    .from(chatMessagesTable)
-    .where(or(
+  const parsedBeforeId = req.query.beforeId === undefined
+    ? { success: true as const, data: undefined }
+    : z.coerce.number().int().positive().safeParse(req.query.beforeId);
+  if (!parsedBeforeId.success) {
+    res.status(400).json(errorBody("Некоректний курсор історії повідомлень."));
+    return;
+  }
+  await db.update(chatMessagesTable)
+    .set({ readAt: new Date() })
+    .where(and(
+      eq(chatMessagesTable.senderUserId, recipientId),
+      eq(chatMessagesTable.recipientUserId, actor.id),
+      isNull(chatMessagesTable.readAt),
+    ));
+  const conversationCondition = or(
       and(
         eq(chatMessagesTable.senderUserId, actor.id),
         eq(chatMessagesTable.recipientUserId, recipientId),
@@ -664,16 +750,30 @@ router.get("/crm/chat/messages/:userId", async (req, res): Promise<void> => {
         eq(chatMessagesTable.senderUserId, recipientId),
         eq(chatMessagesTable.recipientUserId, actor.id),
       ),
+    );
+  const messages = await db
+    .select()
+    .from(chatMessagesTable)
+    .where(and(
+      conversationCondition,
+      parsedBeforeId.data === undefined ? undefined : lt(chatMessagesTable.id, parsedBeforeId.data),
     ))
     .orderBy(desc(chatMessagesTable.createdAt), desc(chatMessagesTable.id))
     .limit(100);
-  res.json(messages.reverse().map((message) => ({
+  const chronological = messages.reverse();
+  res.json({
+    messages: chronological.map((message) => ({
     id: message.id,
     senderUserId: message.senderUserId,
     recipientUserId: message.recipientUserId,
     body: message.body,
+    editedAt: iso(message.editedAt),
+    readAt: iso(message.readAt),
     createdAt: message.createdAt.toISOString(),
-  })));
+    })),
+    hasMore: messages.length === 100,
+    nextBeforeId: messages[0]?.id ?? null,
+  });
 });
 
 router.post("/crm/chat/messages/:userId", async (req, res): Promise<void> => {
@@ -723,8 +823,68 @@ router.post("/crm/chat/messages/:userId", async (req, res): Promise<void> => {
     senderUserId: message.senderUserId,
     recipientUserId: message.recipientUserId,
     body: message.body,
+    editedAt: iso(message.editedAt),
+    readAt: iso(message.readAt),
     createdAt: message.createdAt.toISOString(),
   });
+});
+
+router.patch("/crm/chat/messages/:messageId", async (req, res): Promise<void> => {
+  const parsedId = z.coerce.number().int().positive().safeParse(req.params.messageId);
+  const parsedBody = z.object({
+    body: z.string().trim().min(1).max(4000),
+  }).safeParse(req.body);
+  if (!parsedId.success) {
+    res.status(400).json(errorBody("Некоректне повідомлення."));
+    return;
+  }
+  if (!parsedBody.success) {
+    res.status(400).json(errorBody(parsedBody.error.message));
+    return;
+  }
+  const actor = getAuthenticatedUser(res);
+  const [message] = await db
+    .update(chatMessagesTable)
+    .set({ body: parsedBody.data.body, editedAt: new Date() })
+    .where(and(
+      eq(chatMessagesTable.id, parsedId.data),
+      eq(chatMessagesTable.senderUserId, actor.id),
+    ))
+    .returning();
+  if (!message) {
+    res.status(404).json(errorBody("Повідомлення не знайдено або воно належить іншому користувачу."));
+    return;
+  }
+  res.json({
+    id: message.id,
+    senderUserId: message.senderUserId,
+    recipientUserId: message.recipientUserId,
+    body: message.body,
+    editedAt: iso(message.editedAt),
+    readAt: iso(message.readAt),
+    createdAt: message.createdAt.toISOString(),
+  });
+});
+
+router.delete("/crm/chat/messages/:messageId", async (req, res): Promise<void> => {
+  const parsedId = z.coerce.number().int().positive().safeParse(req.params.messageId);
+  if (!parsedId.success) {
+    res.status(400).json(errorBody("Некоректне повідомлення."));
+    return;
+  }
+  const actor = getAuthenticatedUser(res);
+  const [deleted] = await db
+    .delete(chatMessagesTable)
+    .where(and(
+      eq(chatMessagesTable.id, parsedId.data),
+      eq(chatMessagesTable.senderUserId, actor.id),
+    ))
+    .returning({ id: chatMessagesTable.id });
+  if (!deleted) {
+    res.status(404).json(errorBody("Повідомлення не знайдено або воно належить іншому користувачу."));
+    return;
+  }
+  res.status(204).end();
 });
 
 router.get("/companies", async (req, res): Promise<void> => {
@@ -753,6 +913,21 @@ router.get("/companies", async (req, res): Promise<void> => {
           )}
       )`
     : undefined;
+  const linkedContactSearchCondition = search
+    ? sql`EXISTS (
+        SELECT 1
+        FROM ${companyContactLinksTable}
+        INNER JOIN ${contactsTable} ON ${companyContactLinksTable.contactId} = ${contactsTable.id}
+        WHERE ${companyContactLinksTable.companyId} = ${companiesTable.id}
+          AND ${or(
+            ilike(contactsTable.fullName, `%${search}%`),
+            ilike(contactsTable.phone, `%${search}%`),
+            searchDigits.length >= 2
+              ? sql`regexp_replace(coalesce(${contactsTable.phone}, ''), '[^0-9]', '', 'g') LIKE ${`%${searchDigits}%`}`
+              : undefined,
+          )}
+      )`
+    : undefined;
   const searchCondition = search
     ? or(
         ilike(companiesTable.name, `%${search}%`),
@@ -760,6 +935,7 @@ router.get("/companies", async (req, res): Promise<void> => {
         ilike(companiesTable.city, `%${search}%`),
         ilike(companiesTable.customerType, `%${search}%`),
         contactSearchCondition,
+        linkedContactSearchCondition,
       )
     : undefined;
 
@@ -860,6 +1036,90 @@ router.post("/companies", async (req, res): Promise<void> => {
   });
   const detail = await getCompanyDetail(company.id);
   res.status(201).json(CreateCompanyResponse.parse(detail));
+});
+
+router.get("/crm/contact-search", async (req, res): Promise<void> => {
+  const parsedQuery = z.string().trim().min(2).max(120).safeParse(req.query.q);
+  if (!parsedQuery.success) {
+    res.status(400).json(errorBody("Введіть щонайменше 2 символи для пошуку контакту."));
+    return;
+  }
+  const query = parsedQuery.data;
+  const digits = query.replace(/\D/g, "");
+  const pattern = `%${query}%`;
+  const phoneSearchCondition = digits.length >= 2
+    ? sql`regexp_replace(coalesce(${contactsTable.phone}, ''), '[^0-9]', '', 'g') LIKE ${`%${digits}%`}`
+    : undefined;
+  const managerScope = await getManagerScope(getAuthenticatedUser(res));
+  const results = await db
+    .select({
+      id: contactsTable.id,
+      fullName: contactsTable.fullName,
+      phone: contactsTable.phone,
+      email: contactsTable.email,
+      role: contactsTable.role,
+      companyId: contactsTable.companyId,
+      companyName: companiesTable.name,
+    })
+    .from(contactsTable)
+    .innerJoin(companiesTable, eq(contactsTable.companyId, companiesTable.id))
+    .where(and(
+      or(
+        ilike(contactsTable.fullName, pattern),
+        ilike(contactsTable.phone, pattern),
+        phoneSearchCondition,
+      ),
+      managerScopeCondition(managerScope),
+    ))
+    .orderBy(desc(contactsTable.createdAt))
+    .limit(30);
+  res.json(results);
+});
+
+router.put("/companies/:companyId/responsible-contact", async (req, res): Promise<void> => {
+  const params = GetCompanyParams.safeParse(req.params);
+  const parsed = z.object({ contactId: z.number().int().positive().nullable() }).safeParse(req.body);
+  if (!params.success || !parsed.success) {
+    res.status(400).json(errorBody(!params.success ? params.error.message : "Виберіть коректний контакт."));
+    return;
+  }
+  const actor = getAuthenticatedUser(res);
+  const managerScope = await getManagerScope(actor);
+  const [company] = await db
+    .select({ id: companiesTable.id })
+    .from(companiesTable)
+    .where(and(
+      eq(companiesTable.id, params.data.companyId),
+      managerScopeCondition(managerScope),
+    ))
+    .limit(1);
+  if (!company) {
+    res.status(404).json(errorBody("Компанію не знайдено."));
+    return;
+  }
+  if (parsed.data.contactId === null) {
+    await db.delete(companyContactLinksTable).where(eq(companyContactLinksTable.companyId, company.id));
+    res.status(204).end();
+    return;
+  }
+  const [contact] = await db
+    .select({ id: contactsTable.id })
+    .from(contactsTable)
+    .innerJoin(companiesTable, eq(contactsTable.companyId, companiesTable.id))
+    .where(and(
+      eq(contactsTable.id, parsed.data.contactId),
+      managerScopeCondition(managerScope),
+    ))
+    .limit(1);
+  if (!contact) {
+    res.status(404).json(errorBody("Контакт не знайдено або він недоступний для вашої команди."));
+    return;
+  }
+  await db.transaction(async (tx) => {
+    await tx.delete(companyContactLinksTable).where(eq(companyContactLinksTable.companyId, company.id));
+    await tx.insert(companyContactLinksTable).values({ companyId: company.id, contactId: contact.id });
+  });
+  res.status(204).end();
 });
 
 router.get("/companies/:companyId", async (req, res): Promise<void> => {

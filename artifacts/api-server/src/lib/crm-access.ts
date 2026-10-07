@@ -42,7 +42,7 @@ export function isAllowedCrmRequest(
   if (role === "owner" || role === "director") return true;
 
   if (["sales_manager", "manager"].includes(role) && path.startsWith("/crm/chat/")) {
-    return ["GET", "POST"].includes(verb);
+    return ["GET", "POST", "PATCH", "DELETE"].includes(verb);
   }
 
   if (role === "warehouse") {
