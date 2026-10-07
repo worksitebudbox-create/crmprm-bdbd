@@ -1605,6 +1605,7 @@ function AuthGate() {
   const [authError, setAuthError] = useState('');
   const [accessError, setAccessError] = useState('');
   const [accessChecking, setAccessChecking] = useState(false);
+  const [accessVerifiedUserId, setAccessVerifiedUserId] = useState<string | null>(null);
   const [role, setRole] = useState<CrmRole>('manager');
   const isAdmin = role === 'owner';
 
@@ -1634,7 +1635,10 @@ function AuthGate() {
       setAccessError('');
       setAccessChecking(Boolean(nextSession));
       setLoading(false);
-      if (!nextSession) queryClient.clear();
+      if (!nextSession) {
+        setAccessVerifiedUserId(null);
+        queryClient.clear();
+      }
     });
     void client.auth.getSession().then(({ data, error }) => {
       if (!mounted) return;
@@ -1643,6 +1647,7 @@ function AuthGate() {
       setSession(nextSession);
       setAccessChecking(Boolean(nextSession));
       setLoading(false);
+      if (!nextSession) setAccessVerifiedUserId(null);
     }).catch(() => {
       if (!mounted) return;
       setAuthError('Не вдалося перевірити сеанс. Перевірте з’єднання та спробуйте ще раз.');
@@ -1660,6 +1665,7 @@ function AuthGate() {
     if (!client || !session) {
       setRole('manager');
       setAccessChecking(false);
+      setAccessVerifiedUserId(null);
       return;
     }
     let active = true;
@@ -1672,6 +1678,7 @@ function AuthGate() {
         if (!token) {
           setRole('manager');
           setAccessError('');
+          setAccessVerifiedUserId(session.user.id);
           setAccessChecking(false);
           return;
         }
@@ -1701,6 +1708,7 @@ function AuthGate() {
         if (active) {
           setAccessError('');
           setRole(verifiedRole);
+          setAccessVerifiedUserId(session.user.id);
         }
       } catch (error) {
         console.error('Could not verify CRM administrator access.', error);
@@ -1728,7 +1736,7 @@ function AuthGate() {
     const { error } = await client.auth.signOut();
     if (error) throw error;
   };
-  if (loading || accessChecking) return <main className="auth-loading"><LoaderCircle size={24} /><span>Перевіряємо доступ…</span></main>;
+  if (loading || (accessChecking && accessVerifiedUserId !== session.user.id)) return <main className="auth-loading"><LoaderCircle size={24} /><span>Перевіряємо доступ…</span></main>;
   if (accessError) return <main className="auth-loading"><ShieldCheck size={24} /><span>{accessError}</span><button type="button" className="secondary-button" onClick={() => void signOut()}>Вийти з акаунта</button></main>;
   return <TooltipProvider><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}><Router userEmail={session.user.email ?? null} userId={session.user.id} role={role} isAdmin={isAdmin} onSignOut={signOut} /></WouterRouter><Toaster /></TooltipProvider>;
 }
