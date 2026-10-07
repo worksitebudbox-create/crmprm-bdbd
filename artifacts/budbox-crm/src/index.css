@@ -2970,7 +2970,9 @@
 .order-card-bottom > span { min-width: 0; gap: 5px; }
 .order-card-bottom > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .order-card-bottom > span:last-child { flex: 0 0 auto; color: #5073ad; font-weight: 700; }
-.order-arrival-time { display: inline-flex; align-items: center; gap: 5px; color: #65768d; font-size: 9px; }
+.order-arrival-time { display: inline-flex; width: fit-content; max-width: 100%; align-items: center; gap: 5px; padding: 4px 7px; border-radius: 7px; font-size: 9px; line-height: 1.4; }
+.order-arrival-time.arrived { color: #18734f; background: #edf8f2; }
+.order-arrival-time.pending { color: #718096; background: #f3f5f8; }
 .order-arrival-time svg { flex: 0 0 auto; }
 .modal-panel:has(.company-lookup-field) { width: min(100%, 760px); }
 .modal-panel:has(.company-lookup-field) .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
