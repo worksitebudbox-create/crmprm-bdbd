@@ -3184,6 +3184,17 @@
 }
 .company-list.bb-scroll::-webkit-scrollbar-thumb:hover { background: #7386a2; }
 
+@media (min-width: 768px) {
+  .clients-app {
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .clients-app > .workspace { min-height: 0; overflow: hidden; }
+  .clients-app .main { min-height: 0; }
+}
+
 .auth-page {
   display: grid;
   min-height: 100vh;
