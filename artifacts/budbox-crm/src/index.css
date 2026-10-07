@@ -2565,6 +2565,24 @@
 .popover-row small, .density-control small { color: #8995a7; font-size: 10px; }
 .density-control { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 5px; }
 .density-control input { accent-color: #1559d6; }
+.display-name-editor { display: grid; gap: 7px; padding: 12px 5px 4px; border-top: 1px solid #edf0f5; }
+.display-name-editor > label { color: #42536d; font-size: 10px; font-weight: 750; }
+.display-name-editor > div { display: flex; gap: 7px; }
+.display-name-editor input { min-width: 0; flex: 1; padding: 8px 9px; border: 1px solid #dfe5ef; border-radius: 8px; color: #273953; font-size: 11px; }
+.display-name-editor .secondary-button { min-height: 32px; padding: 0 10px; font-size: 10px; }
+.display-name-editor > small, .manager-select-field > small { color: #8995a7; font-size: 9px; }
+.manager-select-field { display: grid; gap: 4px; }
+.manager-select-error { color: #b74343; font-size: 10px; }
+.manager-select-error button { padding: 0; border: 0; color: #1559d6; background: transparent; font: inherit; text-decoration: underline; cursor: pointer; }
+.callback-task-input { display: flex; gap: 8px; }
+.callback-task-input input { min-width: 0; flex: 1; }
+.callback-task-input .secondary-button { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; }
+.contact-messenger-links { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.messenger-link { display: inline-flex; width: 25px; height: 25px; align-items: center; justify-content: center; border-radius: 7px; color: #fff; transition: transform .15s, filter .15s; }
+.messenger-link:hover { transform: translateY(-1px); filter: brightness(.94); }
+.messenger-link.whatsapp { background: #25a66a; }
+.messenger-link.telegram { background: #229ed9; }
+.messenger-link.viber { background: #7360bd; }
 .drawer-scrim { display: none; }
 .global-main { overflow-y: auto; }
 .global-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 16px; }

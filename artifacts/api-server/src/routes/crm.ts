@@ -553,6 +553,19 @@ router.get("/crm/activity", async (req, res): Promise<void> => {
   res.json(GetCrmActivityResponse.parse(response));
 });
 
+router.get("/crm/managers", async (_req, res): Promise<void> => {
+  const managers = await db
+    .select({ email: crmUserAccessTable.email })
+    .from(crmUserAccessTable)
+    .where(and(
+      eq(crmUserAccessTable.isActive, true),
+      inArray(crmUserAccessTable.role, ["owner", "director", "sales_manager", "manager"]),
+    ))
+    .orderBy(crmUserAccessTable.email);
+
+  res.json(managers.map(({ email }) => email));
+});
+
 router.get("/companies", async (req, res): Promise<void> => {
   const parsed = GetCompaniesQueryParams.safeParse(req.query);
   if (!parsed.success) {
@@ -564,12 +577,28 @@ router.get("/companies", async (req, res): Promise<void> => {
   const managerScope = await getManagerScope(actor);
   const currentManager = getCurrentManager(actor);
   const search = parsed.data.q?.trim();
+  const searchDigits = search?.replace(/\D/g, "") ?? "";
+  const contactSearchCondition = search
+    ? sql`EXISTS (
+        SELECT 1
+        FROM ${contactsTable}
+        WHERE ${contactsTable.companyId} = ${companiesTable.id}
+          AND ${or(
+            ilike(contactsTable.fullName, `%${search}%`),
+            ilike(contactsTable.phone, `%${search}%`),
+            searchDigits.length >= 2
+              ? sql`regexp_replace(coalesce(${contactsTable.phone}, ''), '[^0-9]', '', 'g') LIKE ${`%${searchDigits}%`}`
+              : undefined,
+          )}
+      )`
+    : undefined;
   const searchCondition = search
     ? or(
         ilike(companiesTable.name, `%${search}%`),
         ilike(companiesTable.taxId, `%${search}%`),
         ilike(companiesTable.city, `%${search}%`),
         ilike(companiesTable.customerType, `%${search}%`),
+        contactSearchCondition,
       )
     : undefined;
 
