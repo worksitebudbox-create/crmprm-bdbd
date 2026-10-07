@@ -460,6 +460,80 @@ router.post("/crm/orders", async (req, res): Promise<void> => {
   res.status(201).json(CreateOrderResponse.parse(toOrder(savedOrder)));
 });
 
+router.get("/crm/order-customer-search", async (req, res): Promise<void> => {
+  const parsedQuery = z.string().trim().min(2).max(120).safeParse(req.query.q);
+  if (!parsedQuery.success) {
+    res.status(400).json(errorBody("Введіть щонайменше 2 символи для пошуку клієнта."));
+    return;
+  }
+
+  const query = parsedQuery.data;
+  const pattern = `%${query}%`;
+  const digits = query.replace(/\D/g, "");
+  const managerScope = await getManagerScope(getAuthenticatedUser(res));
+  const companySearchCondition = or(
+    ilike(companiesTable.name, pattern),
+    ilike(companiesTable.taxId, pattern),
+    ilike(companiesTable.city, pattern),
+    ilike(companiesTable.customerType, pattern),
+  );
+  const phoneSearchCondition = digits.length >= 2
+    ? sql`regexp_replace(coalesce(${contactsTable.phone}, ''), '[^0-9]', '', 'g') LIKE ${`%${digits}%`}`
+    : undefined;
+
+  const [contactMatches, companyMatches] = await Promise.all([
+    db.select({ company: companiesTable, contact: contactsTable })
+      .from(contactsTable)
+      .innerJoin(companiesTable, eq(contactsTable.companyId, companiesTable.id))
+      .where(and(
+        or(
+          ilike(contactsTable.fullName, pattern),
+          ilike(contactsTable.phone, pattern),
+          phoneSearchCondition,
+          companySearchCondition,
+        ),
+        managerScopeCondition(managerScope),
+      ))
+      .orderBy(desc(contactsTable.createdAt))
+      .limit(30),
+    db.select()
+      .from(companiesTable)
+      .where(and(companySearchCondition, managerScopeCondition(managerScope)))
+      .orderBy(desc(companiesTable.updatedAt))
+      .limit(20),
+  ]);
+
+  const matchedCompanyIds = new Set(contactMatches.map(({ company }) => company.id));
+  const results = [
+    ...contactMatches.map(({ company, contact }) => ({
+      companyId: company.id,
+      companyName: company.name,
+      taxId: company.taxId,
+      city: company.city,
+      customerType: company.customerType,
+      manager: company.manager,
+      contactId: contact.id,
+      contactName: contact.fullName,
+      phone: contact.phone,
+    })),
+    ...companyMatches
+      .filter((company) => !matchedCompanyIds.has(company.id))
+      .map((company) => ({
+        companyId: company.id,
+        companyName: company.name,
+        taxId: company.taxId,
+        city: company.city,
+        customerType: company.customerType,
+        manager: company.manager,
+        contactId: null,
+        contactName: null,
+        phone: null,
+      })),
+  ];
+
+  res.json(results);
+});
+
 router.get("/crm/activity", async (req, res): Promise<void> => {
   const managerScope = await getManagerScope(getAuthenticatedUser(res));
   const rows = await db

@@ -2838,7 +2838,13 @@
 .order-card:hover, .order-card:focus-visible { border-color: #aabce5; box-shadow: 0 9px 24px rgb(25 43 69 / 9%); transform: translateY(-1px); outline: none; }
 .order-card-top, .order-card-date, .order-card-details, .order-card-badges, .order-card-bottom, .order-card-bottom > span { display: flex; align-items: center; }
 .order-card-top, .order-card-bottom { justify-content: space-between; gap: 8px; }
+.order-card-top { align-items: flex-start; }
+.order-card-identifier { display: grid; min-width: 0; gap: 5px; }
 .order-card-code { overflow: hidden; color: #263b59; font-size: 12px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+.order-invoice-reference, .order-invoice-missing { display: inline-flex; width: fit-content; max-width: 100%; align-items: center; gap: 5px; overflow-wrap: anywhere; font-size: 8px; line-height: 1.35; }
+.order-invoice-reference { color: #526b8d; font-weight: 700; }
+.order-invoice-missing { color: #b46c18; font-weight: 750; }
+.order-invoice-reference svg, .order-invoice-missing svg { flex: 0 0 auto; }
 .order-card-date { flex: 0 0 auto; gap: 5px; color: #8290a4; font-size: 9px; }
 .order-card-customer { overflow: hidden; color: #273c58; font-size: 14px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
 .order-card-phone { margin-top: -9px; color: #8290a4; font-size: 10px; }
@@ -2864,6 +2870,33 @@
 .order-card-bottom > span:last-child { flex: 0 0 auto; color: #5073ad; font-weight: 700; }
 .order-arrival-time { display: inline-flex; align-items: center; gap: 5px; color: #65768d; font-size: 9px; }
 .order-arrival-time svg { flex: 0 0 auto; }
+.modal-panel:has(.company-lookup-field) { width: min(100%, 760px); }
+.modal-panel:has(.company-lookup-field) .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.company-lookup-field { display: grid; min-width: 0; grid-column: 1 / -1; gap: 8px; }
+.company-lookup-field > .field { min-width: 0; }
+.company-lookup-input-wrap { display: flex; min-width: 0; min-height: 42px; align-items: center; gap: 10px; padding: 0 12px; border: 1px solid #dce4ef; border-radius: 9px; color: #8290a4; background: #fbfcfe; transition: border-color .15s ease, box-shadow .15s ease, background .15s ease; }
+.company-lookup-input-wrap:focus-within { border-color: #8daee0; background: #fff; box-shadow: 0 0 0 3px rgb(67 117 190 / 10%); }
+.company-lookup-input-wrap > svg { flex: 0 0 auto; }
+.company-lookup-input-wrap input { width: 100%; min-width: 0; height: 40px; padding: 0; border: 0; outline: 0; color: #2f425d; background: transparent; box-shadow: none !important; font-size: 11px; }
+.company-lookup-input-wrap input::placeholder { color: #9aa6b7; }
+.company-lookup-results { min-width: 0; }
+.company-lookup-list { display: grid; max-height: 240px; overflow: auto; border: 1px solid #e2e8f0; border-radius: 9px; background: #fff; box-shadow: 0 8px 20px rgb(32 53 80 / 7%); }
+.company-lookup-item { display: flex; min-width: 0; align-items: center; gap: 10px; padding: 10px 11px; border: 0; border-bottom: 1px solid #edf1f6; color: #34445c; background: #fff; text-align: left; cursor: pointer; transition: background .12s ease; }
+.company-lookup-item:last-child { border-bottom: 0; }
+.company-lookup-item:hover, .company-lookup-item:focus-visible { outline: 0; background: #f4f8fd; }
+.company-lookup-result-icon, .selected-customer-icon { display: grid; width: 32px; height: 32px; flex: 0 0 auto; place-items: center; border-radius: 8px; color: #416da8; background: #edf4fd; }
+.company-lookup-result-copy, .selected-customer-info { display: grid; min-width: 0; flex: 1; gap: 3px; }
+.company-lookup-result-copy strong { overflow: hidden; color: #2d405c; font-size: 10px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+.company-lookup-result-copy small { overflow: hidden; color: #8491a4; font-size: 8px; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
+.company-lookup-arrow { flex: 0 0 auto; color: #9aa8bb; }
+.company-lookup-message { display: flex; min-height: 38px; align-items: center; gap: 7px; padding: 9px 11px; border: 1px solid #e7ecf3; border-radius: 8px; color: #71819a; background: #f8fafd; font-size: 9px; }
+.company-lookup-message.error { border-color: #f0d3d1; color: #a44540; background: #fff8f7; }
+.selected-customer-card { display: flex; min-width: 0; align-items: center; gap: 10px; padding: 11px; border: 1px solid #d6e6dc; border-radius: 10px; background: linear-gradient(110deg, #f3faf5 0%, #fff 90%); }
+.selected-customer-icon { color: #278052; background: #e5f4e9; }
+.selected-customer-info strong { overflow: hidden; color: #29445b; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.selected-customer-info small { overflow-wrap: anywhere; color: #7c8c9f; font-size: 8px; line-height: 1.4; }
+.company-lookup-change { flex: 0 0 auto; min-height: 30px; padding: 0 9px; border: 1px solid #dce5f0; border-radius: 7px; color: #496992; background: #fff; font-size: 8px; font-weight: 750; cursor: pointer; }
+.company-lookup-change:hover { border-color: #a7bddc; background: #f4f8fd; }
 .arrival-time-value { display: flex; min-height: 38px; align-items: center; color: #65768d; font-size: 10px; line-height: 1.45; }
 .order-detail-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; padding-top: 12px; border-top: 1px solid #e9edf3; }
 .order-delete-button { min-height: 36px; padding: 0 11px; border: 1px solid #efcaca; border-radius: 7px; color: #b53d3d; background: #fff8f7; font-size: 10px; font-weight: 700; cursor: pointer; }
@@ -3019,6 +3052,10 @@
   .order-delivery-panel { align-items: flex-start; flex-direction: column; }
   .order-delivery-panel .secondary-button { align-self: stretch; justify-content: center; }
   .order-detail-summary > strong { font-size: 17px; }
+  .modal-panel:has(.company-lookup-field) .form-grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .modal-panel:has(.company-lookup-field) .company-lookup-field { grid-column: 1; }
+  .selected-customer-card { align-items: flex-start; }
+  .company-lookup-change { align-self: flex-start; }
   .order-detail-actions { display: flex; justify-content: flex-end; }
   .order-detail-actions > button { justify-content: center; }
   .order-summary-strip { grid-template-columns: 1fr; }

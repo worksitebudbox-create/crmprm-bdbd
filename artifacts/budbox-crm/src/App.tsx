@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ElementType, ReactNode, FormEvent } from 'react';
-import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Session } from '@supabase/supabase-js';
 import {
   Activity, ArrowDownUp, ArrowRight, BarChart3, Bell, Building2, CalendarClock, Check, ChevronDown, Menu,
@@ -86,6 +86,33 @@ function resolveManagerName(value?: string | null, fallback = 'Не призна
   return value?.trim() || fallback;
 }
 
+function readSavedDisplayName() {
+  if (typeof window === 'undefined') return '';
+  return (localStorage.getItem('budbox-crm-display-name') ?? '').trim();
+}
+
+function writeSavedDisplayName(value: string) {
+  if (typeof window === 'undefined') return;
+  const next = value.trim();
+  if (next) localStorage.setItem('budbox-crm-display-name', next);
+  else localStorage.removeItem('budbox-crm-display-name');
+}
+
+function getPrimaryDisplayName(userEmail?: string | null, fallback = 'Робочий акаунт') {
+  const saved = readSavedDisplayName();
+  return saved || userEmail?.trim() || fallback;
+}
+
+function getContactMessengerLinks(contact: { phone?: string | null; telegram?: string | null; viber?: string | null }) {
+  const normalizedPhone = (contact.phone ?? '').replace(/\D/g, '');
+  const whatsappUrl = normalizedPhone ? `https://wa.me/${normalizedPhone.replace(/^0+/, '')}` : null;
+  const telegramValue = (contact.telegram ?? '').trim();
+  const telegramUrl = telegramValue ? `https://t.me/${telegramValue.replace(/^@/, '')}` : null;
+  const viberValue = (contact.viber ?? '').trim();
+  const viberUrl = viberValue ? `viber://chat?number=${viberValue.replace(/\D/g, '')}` : normalizedPhone ? `viber://chat?number=${normalizedPhone.replace(/^0+/, '380')}` : null;
+  return { whatsappUrl, telegramUrl, viberUrl };
+}
+
 function isAutoPaidPaymentMethod(method?: string | null) {
   return autoPaidPaymentMethods.has(normalizePaymentMethod(method).toLowerCase());
 }
@@ -167,6 +194,17 @@ function stageTone(stage: string) {
 
 type ModalKind = 'company' | 'client' | 'edit' | 'contact' | 'order' | 'task' | 'note' | null;
 type Notice = { kind: 'success' | 'error'; text: string };
+type OrderCustomerSuggestion = {
+  companyId: number;
+  companyName: string;
+  taxId: string | null;
+  city: string | null;
+  customerType: string;
+  manager: string;
+  contactId: number | null;
+  contactName: string | null;
+  phone: string | null;
+};
 
 function Field({ label, children, wide = false }: { label: string; children: ReactNode; wide?: boolean }) {
   return <label className={`field ${wide ? 'field-wide' : ''}`}><span>{label}</span>{children}</label>;
@@ -194,6 +232,7 @@ function CrmWorkspace({ userEmail, role, isAdmin, onSignOut }: { userEmail: stri
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [headerPanel, setHeaderPanel] = useState<'notifications' | 'settings' | 'profile' | null>(null);
   const [compact, setCompact] = useState(() => localStorage.getItem('budbox-compact') === 'true');
+  const [savedDisplayName, setSavedDisplayName] = useState(() => readSavedDisplayName());
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<string>(GetCompaniesFilter.all);
   const [selectedId, setSelectedId] = useState<number | null>(() => {
@@ -258,7 +297,15 @@ function CrmWorkspace({ userEmail, role, isAdmin, onSignOut }: { userEmail: stri
   };
   const open = (kind: ModalKind, values: Record<string, string> = {}) => { setForm(values); setModal(kind); };
   const close = () => { setModal(null); setForm({}); };
-  const setValue = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));
+
+  const saveDisplayName = (value: string) => {
+    const trimmed = value.trim();
+    setSavedDisplayName(trimmed);
+    writeSavedDisplayName(trimmed);
+  };
+  const setValue = (key: string, value: string) => setForm((current) => key === 'companySearch'
+    ? { ...current, companyId: '', companySearch: value, customerName: '', phone: '', taxId: '', city: '', manager: '', selectedCompanyName: '', selectedContactName: '', selectedCustomerType: '' }
+    : { ...current, [key]: value });
   useEffect(() => { const handler = () => close(); window.addEventListener('close-modal', handler); return () => window.removeEventListener('close-modal', handler); }, []);
   const submitCompany = (edit = false) => {
     const payload = {
@@ -388,9 +435,10 @@ function CrmWorkspace({ userEmail, role, isAdmin, onSignOut }: { userEmail: stri
   const companyForm = { name: selected?.name ?? '', taxId: selected?.taxId ?? '', customerType: selected?.customerType ?? CustomerType.Виконроб, city: selected?.city ?? '', manager: selected?.manager ?? currentManager, warehouse: selected?.warehouse ?? '', paymentForm: selected?.paymentForm ?? PaymentForm.ПДВ, creditLimitUah: String(selected?.creditLimitUah ?? 0), paymentTermsDays: String(selected?.paymentTermsDays ?? 0), discountPercent: String(selected?.discountPercent ?? 0), priceTier: selected?.priceTier ?? '', source: selected?.source ?? '' };
   const showCompanyModal = modal === 'company' || modal === 'edit';
   const title = modal === 'company' ? 'Нова компанія' : modal === 'client' ? 'Новий клієнт' : modal === 'edit' ? 'Редагування компанії' : modal === 'contact' ? 'Новий контакт' : modal === 'order' ? 'Нове замовлення' : modal === 'task' ? 'Нове завдання' : 'Нова нотатка';
+  const profileDisplayName = getPrimaryDisplayName(userEmail, 'Робочий акаунт');
 
   return <div className="bb-app">
-    <header className="topbar"><button data-testid="button-hamburger" className="icon-button hamburger" aria-label="Перемкнути навігацію" aria-expanded={window.innerWidth < 768 ? drawerOpen : railOpen} onClick={() => { if (window.innerWidth < 768) setDrawerOpen(!drawerOpen); else setRailOpen(!railOpen); }}><Menu size={19} /></button><div className="brand"><div className="brand-mark">B</div><div><strong>BUDBOX</strong><small>CRM / ПРОДАЖІ</small></div></div><div className="crumbs"><span>Продажі</span><ChevronRight size={13} /><b>Клієнти</b></div><div className="top-actions"><button aria-label="Сповіщення" aria-expanded={headerPanel === 'notifications'} data-testid="button-notifications" className="icon-button" onClick={() => setHeaderPanel(headerPanel === 'notifications' ? null : 'notifications')}><Bell size={17} />{overdueTasks.length > 0 && <i />}</button><button aria-label="Налаштування" aria-expanded={headerPanel === 'settings'} data-testid="button-settings" className="icon-button" onClick={() => setHeaderPanel(headerPanel === 'settings' ? null : 'settings')}><Settings2 size={17} /></button><button aria-label="Профіль і параметри" aria-expanded={headerPanel === 'profile'} className="profile profile-trigger" data-testid="button-profile-menu" onClick={() => setHeaderPanel(headerPanel === 'profile' ? null : 'profile')}><span>{userEmail?.slice(0, 2).toUpperCase() || 'BU'}</span><div><b>{userEmail || 'Робочий акаунт'}</b><small>Увійшли в CRM</small></div><ChevronDown size={14} /></button></div>
+    <header className="topbar"><button data-testid="button-hamburger" className="icon-button hamburger" aria-label="Перемкнути навігацію" aria-expanded={window.innerWidth < 768 ? drawerOpen : railOpen} onClick={() => { if (window.innerWidth < 768) setDrawerOpen(!drawerOpen); else setRailOpen(!railOpen); }}><Menu size={19} /></button><div className="brand"><div className="brand-mark">B</div><div><strong>BUDBOX</strong><small>CRM / ПРОДАЖІ</small></div></div><div className="crumbs"><span>Продажі</span><ChevronRight size={13} /><b>Клієнти</b></div><div className="top-actions"><button aria-label="Сповіщення" aria-expanded={headerPanel === 'notifications'} data-testid="button-notifications" className="icon-button" onClick={() => setHeaderPanel(headerPanel === 'notifications' ? null : 'notifications')}><Bell size={17} />{overdueTasks.length > 0 && <i />}</button><button aria-label="Налаштування" aria-expanded={headerPanel === 'settings'} data-testid="button-settings" className="icon-button" onClick={() => setHeaderPanel(headerPanel === 'settings' ? null : 'settings')}><Settings2 size={17} /></button>    <button aria-label="Профіль і параметри" aria-expanded={headerPanel === 'profile'} className="profile profile-trigger" data-testid="button-profile-menu" onClick={() => setHeaderPanel(headerPanel === 'profile' ? null : 'profile')}><span>{userEmail?.slice(0, 2).toUpperCase() || 'BU'}</span><div><b>{profileDisplayName}</b><small>{userEmail || 'Робочий акаунт'}</small></div><ChevronDown size={14} /></button></div>
       {headerPanel && <div className="header-popover" data-testid={`panel-${headerPanel}`}><div className="popover-title">{headerPanel === 'notifications' ? 'Потребують уваги' : headerPanel === 'settings' ? 'Налаштування вигляду' : 'Робочий профіль'}<button className="icon-button" onClick={() => setHeaderPanel(null)}><X size={14} /></button></div>{headerPanel === 'notifications' ? taskBoard.isLoading ? <p>Завантаження завдань…</p> : taskBoard.isError ? <p>Не вдалося завантажити сповіщення.</p> : overdueTasks.length ? overdueTasks.slice(0, 5).map((task) => <button className="popover-row" key={task.id} onClick={() => { setHeaderPanel(null); navigate('/tasks'); }}><CircleAlert size={14} /><span><b>{task.title}</b><small>{task.companyName} · {date(task.dueAt)}</small></span></button>) : <p>Прострочених завдань немає.</p> : headerPanel === 'settings' ? <label className="density-control"><span><b>Компактний список</b><small>Менше вертикальних відступів у черзі</small></span><input data-testid="toggle-compact-density" type="checkbox" checked={compact} onChange={toggleCompact} /></label> : <><p>{userEmail || 'Робочий акаунт'}</p><button className="popover-row" onClick={() => { setHeaderPanel('settings'); }}><SlidersHorizontal size={14} /><span><b>Параметри робочого простору</b><small>Налаштування локальні для цього браузера</small></span></button><button className="popover-row auth-signout-row" onClick={() => { setHeaderPanel(null); void onSignOut().catch(() => flash('Не вдалося вийти з акаунта', 'error')); }}><LogOut size={14} /><span><b>Вийти з акаунта</b><small>Завершити поточний сеанс CRM</small></span></button></>}</div>}
     </header>
     <div className={`workspace ${!railOpen ? 'rail-collapsed' : ''}`}><aside className={`rail ${drawerOpen ? 'drawer-open' : ''}`}><NavItems current="/" role={role} isAdmin={isAdmin} navigate={(path) => { navigate(path); setDrawerOpen(false); }} /></aside>{drawerOpen && <button className="drawer-scrim" aria-label="Закрити меню" onClick={() => setDrawerOpen(false)} />}
@@ -706,7 +754,54 @@ function GlobalPage({ page, userEmail, userId, role, isAdmin, onSignOut }: { pag
   const currentManager = resolveManagerName(userEmail);
   const [formKind, setFormKind] = useState<'task' | 'order' | 'note' | null>(null);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
-  const [form, setForm] = useState<{ companyId: string; title: string; details: string; dueAt: string; assignee: string; code: string; stage: DealStage; amountUah: string; ttn: string; invoiceNumber: string; comment: string; sender: string; warehouse: string; customerName: string; phone: string; itemCount: string; paymentMethod: string; paymentStatus: string; marketingSource: string; orderDate: string }>({ companyId: '', title: '', details: '', dueAt: '', assignee: currentManager, code: '', stage: stages[0], amountUah: '', ttn: '', invoiceNumber: '', comment: '', sender: '', warehouse: '', customerName: '', phone: '', itemCount: '', paymentMethod: paymentMethods[0], paymentStatus: orderStatuses[0], marketingSource: '', orderDate: localDateInput() });
+  const companies = Array.isArray(companiesQuery.data) ? companiesQuery.data : [];
+  const [form, setForm] = useState<{ companyId: string; companySearch: string; taxId: string; title: string; details: string; dueAt: string; assignee: string; code: string; stage: DealStage; amountUah: string; ttn: string; invoiceNumber: string; comment: string; sender: string; warehouse: string; customerName: string; phone: string; itemCount: string; paymentMethod: string; paymentStatus: string; marketingSource: string; orderDate: string; city: string }>({ companyId: '', companySearch: '', taxId: '', title: '', details: '', dueAt: '', assignee: currentManager, code: '', stage: stages[0], amountUah: '', ttn: '', invoiceNumber: '', comment: '', sender: '', warehouse: '', customerName: '', phone: '', itemCount: '', paymentMethod: paymentMethods[0], paymentStatus: orderStatuses[0], marketingSource: '', orderDate: localDateInput(), city: '' });
+  const [debouncedCustomerSearch, setDebouncedCustomerSearch] = useState('');
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedCustomerSearch(form.companySearch.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [form.companySearch]);
+  const orderCustomerSearch = useQuery({
+    queryKey: ['order-customer-search', debouncedCustomerSearch],
+    queryFn: () => customFetch<OrderCustomerSuggestion[]>(`/api/crm/order-customer-search?q=${encodeURIComponent(debouncedCustomerSearch)}`),
+    enabled: formKind === 'order' && !form.companyId && debouncedCustomerSearch.length >= 2,
+    staleTime: 30_000,
+  });
+  useEffect(() => {
+    if (!orderCustomerSearch.error || formKind !== 'order') return;
+    setNoticeIsError(true);
+    setNotice('Не вдалося виконати пошук клієнта. Спробуйте ще раз.');
+  }, [formKind, orderCustomerSearch.error]);
+  const applyCompanySuggestion = (company: OrderCustomerSuggestion) => {
+    setForm((current) => ({
+      ...current,
+      companyId: String(company.companyId),
+      companySearch: company.contactName || company.companyName,
+      customerName: company.contactName || company.companyName,
+      phone: company.phone || '',
+      taxId: company.taxId || '',
+      city: company.city || '',
+      manager: company.manager || '',
+      selectedCompanyName: company.companyName,
+      selectedContactName: company.contactName || '',
+      selectedCustomerType: company.customerType || '',
+    }));
+  };
+  const clearCompanySuggestion = () => {
+    setForm((current) => ({
+      ...current,
+      companyId: '',
+      companySearch: '',
+      customerName: '',
+      phone: '',
+      taxId: '',
+      city: '',
+      manager: '',
+      selectedCompanyName: '',
+      selectedContactName: '',
+      selectedCustomerType: '',
+    }));
+  };
   const setValue = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));
   const [notice, setNotice] = useState('');
   const [noticeIsError, setNoticeIsError] = useState(false);
@@ -716,7 +811,6 @@ function GlobalPage({ page, userEmail, userId, role, isAdmin, onSignOut }: { pag
   const [orderDateFrom, setOrderDateFrom] = useState('');
   const [orderDateTo, setOrderDateTo] = useState('');
   const [paymentFilter, setPaymentFilter] = useState<'all' | 'paid' | 'unpaid'>('all');
-  const companies = Array.isArray(companiesQuery.data) ? companiesQuery.data : [];
   const companiesById = new Map(companies.map((company) => [company.id, company]));
   const taskRows = Array.isArray(tasks.data) ? tasks.data : [];
   const orderRows = Array.isArray(orders.data) ? orders.data : [];
@@ -852,7 +946,7 @@ function GlobalPage({ page, userEmail, userId, role, isAdmin, onSignOut }: { pag
       navigate('/');
       return;
     }
-    setForm({ companyId: '', title: '', details: '', dueAt: '', assignee: currentManager, code: '', stage: stages[0], amountUah: '', ttn: '', invoiceNumber: '', comment: '', sender: orderSenders[0], warehouse: orderWarehouses[0], customerName: '', phone: '', itemCount: '', paymentMethod: paymentMethods[0], paymentStatus: orderStatuses[0], marketingSource: '', orderDate: localDateInput() });
+    setForm({ companyId: '', companySearch: '', taxId: '', title: '', details: '', dueAt: '', assignee: currentManager, code: '', stage: stages[0], amountUah: '', ttn: '', invoiceNumber: '', comment: '', sender: orderSenders[0], warehouse: orderWarehouses[0], customerName: '', phone: '', itemCount: '', paymentMethod: paymentMethods[0], paymentStatus: orderStatuses[0], marketingSource: '', orderDate: localDateInput(), city: '' });
     setFormKind(kind);
   };
   const overdueRows = taskRows.filter((task) => !task.isCompleted && task.dueAt && new Date(task.dueAt) < new Date());
@@ -901,7 +995,7 @@ function GlobalPage({ page, userEmail, userId, role, isAdmin, onSignOut }: { pag
       </main>
     </div>
     {notice && <button className={`notice ${noticeIsError ? 'error' : 'success'}`} data-testid="status-notice" onClick={() => setNotice('')}>{noticeIsError ? <CircleAlert size={15} /> : <Check size={15} />} {notice}</button>}
-    {formKind && <Modal title={formKind === 'task' ? 'Нове завдання' : formKind === 'order' ? 'Нове замовлення' : 'Новий запис активності'} subtitle={formKind === 'task' ? 'Оберіть компанію для нагадування' : formKind === 'order' ? 'Внесіть дані покупця, відправлення та оплати' : 'Зафіксуйте нотатку в історії вибраної компанії'} close={() => setFormKind(null)}><form className="form-grid" onSubmit={submit}>{formKind !== 'order' && <Field label="Компанія" wide><select data-testid="select-global-company" required value={form.companyId} onChange={(event) => setForm({ ...form, companyId: event.target.value })}><option value="">Оберіть компанію</option>{companies.map((company) => <option value={company.id} key={company.id}>{company.name}</option>)}</select></Field>}{formKind === 'task' ? <><Field label="Що потрібно зробити?" wide><input data-testid="input-global-task-title" required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></Field><Field label="Термін"><input type="datetime-local" value={form.dueAt} onChange={(event) => setForm({ ...form, dueAt: event.target.value })} /></Field><Field label="Відповідальна"><input value={form.assignee} onChange={(event) => setForm({ ...form, assignee: event.target.value })} /></Field></> : formKind === 'order' ? <GlobalOrderFields form={form} setValue={setValue} /> : <><Field label="Заголовок" wide><input data-testid="input-global-activity-title" required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></Field><Field label="Деталі" wide><textarea data-testid="input-global-activity-details" rows={4} value={form.details} onChange={(event) => setForm({ ...form, details: event.target.value })} /></Field></>}<div className="form-actions"><button className="primary-button" data-testid="button-submit-global" disabled={createTask.isPending || createStandaloneOrder.isPending || createNote.isPending}>{createTask.isPending || createStandaloneOrder.isPending || createNote.isPending ? 'Збереження…' : 'Зберегти'}</button></div></form></Modal>}
+    {formKind && <Modal title={formKind === 'task' ? 'Нове завдання' : formKind === 'order' ? 'Нове замовлення' : 'Новий запис активності'} subtitle={formKind === 'task' ? 'Оберіть компанію для нагадування' : formKind === 'order' ? 'Знайдіть клієнта або компанію — дані контакту заповняться автоматично' : 'Зафіксуйте нотатку в історії вибраної компанії'} close={() => setFormKind(null)}><form className="form-grid" onSubmit={submit}>    {formKind !== 'order' && <Field label="Компанія" wide><select data-testid="select-global-company" required value={form.companyId} onChange={(event) => setForm({ ...form, companyId: event.target.value })}><option value="">Оберіть компанію</option>{companies.map((company) => <option value={company.id} key={company.id}>{company.name}</option>)}</select></Field>}{formKind === 'task' ? <><Field label="Що потрібно зробити?" wide><input data-testid="input-global-task-title" required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></Field><Field label="Термін"><input type="datetime-local" value={form.dueAt} onChange={(event) => setForm({ ...form, dueAt: event.target.value })} /></Field><Field label="Відповідальна"><input value={form.assignee} onChange={(event) => setForm({ ...form, assignee: event.target.value })} /></Field></> : formKind === 'order' ? <GlobalOrderFields form={form} setValue={setValue} suggestions={orderCustomerSearch.data ?? []} loading={orderCustomerSearch.isFetching} error={orderCustomerSearch.isError} onSuggestionSelect={applyCompanySuggestion} onSuggestionClear={clearCompanySuggestion} /> : <><Field label="Заголовок" wide><input data-testid="input-global-activity-title" required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></Field><Field label="Деталі" wide><textarea data-testid="input-global-activity-details" rows={4} value={form.details} onChange={(event) => setForm({ ...form, details: event.target.value })} /></Field></>}<div className="form-actions"><button className="primary-button" data-testid="button-submit-global" disabled={createTask.isPending || createStandaloneOrder.isPending || createNote.isPending}>{createTask.isPending || createStandaloneOrder.isPending || createNote.isPending ? 'Збереження…' : 'Зберегти'}</button></div></form></Modal>}
     {selectedOrder && <OrderDetailModal order={selectedOrder} company={selectedOrder.companyId === null ? undefined : companiesById.get(selectedOrder.companyId)} role={role} save={saveOrder} remove={deleteOrder} refreshTracking={() => refresh(selectedOrder.companyId ?? undefined)} close={() => setSelectedOrderId(null)} />}
   </div>;
 }
@@ -1083,7 +1177,7 @@ function OrderCard({ order, marketingSource, index = 0, role, editOrder, open }:
     }
   };
   return <article tabIndex={0} aria-label={`${order.code || `Замовлення #${order.id}`}. Відкрити деталі клавішею Enter`} role="group" className={`order-card ${orderDeliveryTone(order.deliveryStatus, order.ttn)} bb-enter`} style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }} data-testid={`row-order-${order.id}`} onClick={open} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); open(); } }}>
-    <span className="order-card-top"><span className="order-card-code">{order.code || `Замовлення #${order.id}`}</span><span className="order-card-date"><CalendarClock size={13} />{shortDate(order.orderDate || order.createdAt)}</span></span>
+    <span className="order-card-top"><span className="order-card-identifier"><span className="order-card-code">{order.code || `Замовлення #${order.id}`}</span>{order.invoiceNumber?.trim() ? <small className="order-invoice-reference"><FileText size={12} /> Видаткова · {order.invoiceNumber}</small> : <small className="order-invoice-missing"><CircleAlert size={12} /> ВКАЖІТЬ номер видаткової</small>}</span><span className="order-card-date"><CalendarClock size={13} />{shortDate(order.orderDate || order.createdAt)}</span></span>
     <span className="order-card-customer">{order.customerName || order.companyName}</span>
     <span className="order-card-phone">{order.phone || 'Телефон не вказано'}</span>
     {role !== 'warehouse' && <span className="order-card-details"><span><small>Сума замовлення</small><b>{money(order.amountUah)}</b></span><span><small>Спосіб оплати</small><b>{order.paymentMethod || 'Не вказано'}</b></span></span>}
@@ -1389,8 +1483,73 @@ function OrderFields({ form, setValue }: { form: Record<string, string>; setValu
     <Field label="ТТН"><input value={form.ttn || ''} onChange={(event) => setValue('ttn', event.target.value)} placeholder="Номер ТТН" /></Field>
   </>;
 }
-function GlobalOrderFields({ form, setValue }: { form: Record<string, string>; setValue: (key: string, value: string) => void }) {
+function CompanyLookupField({ form, setValue, suggestions, loading, error, onSelect, onClear }: {
+  form: Record<string, string>;
+  setValue: (key: string, value: string) => void;
+  suggestions: OrderCustomerSuggestion[];
+  loading: boolean;
+  error: boolean;
+  onSelect: (company: OrderCustomerSuggestion) => void;
+  onClear: () => void;
+}) {
+  const query = form.companySearch.trim();
+  return <div className="company-lookup-field">
+    {form.companyId ? <div className="selected-customer-card" data-testid="selected-order-customer">
+      <span className="selected-customer-icon"><Building2 size={17} /></span>
+      <span className="selected-customer-info">
+        <strong>{form.customerName || form.selectedCompanyName}</strong>
+        <small>{form.selectedCompanyName}{form.taxId ? ` · ІПН ${form.taxId}` : ''}</small>
+        <small>{form.phone || 'Телефон не вказано'}{form.city ? ` · ${form.city}` : ''}</small>
+        {form.manager && <small>Менеджер: {form.manager}</small>}
+      </span>
+      <button type="button" className="company-lookup-change" onClick={onClear}>Змінити</button>
+    </div> : <>
+      <Field label="Клієнт / компанія" wide>
+        <span className="company-lookup-input-wrap">
+          <Search size={15} aria-hidden="true" />
+          <input
+            data-testid="input-order-company-search"
+            autoComplete="off"
+            value={form.companySearch || ''}
+            onChange={(event) => setValue('companySearch', event.target.value)}
+            placeholder="ПІБ, телефон, назва компанії або ІПН"
+            aria-controls="order-customer-suggestions"
+            aria-expanded={query.length >= 2}
+          />
+        </span>
+      </Field>
+      {query.length >= 2 && <div id="order-customer-suggestions" className="company-lookup-results" aria-live="polite">
+        {loading ? <div className="company-lookup-message"><LoaderCircle size={14} className="spin" /> Шукаємо клієнтів…</div>
+          : error ? <div className="company-lookup-message error">Не вдалося завантажити підказки. Змініть запит або спробуйте ще раз.</div>
+            : suggestions.length ? <div className="company-lookup-list" role="listbox" aria-label="Підходящі клієнти та компанії">
+              {suggestions.map((suggestion) => (
+                <button key={`${suggestion.companyId}-${suggestion.contactId ?? 'company'}`} type="button" role="option" aria-selected={false} className="company-lookup-item" onClick={() => onSelect(suggestion)}>
+                  <span className="company-lookup-result-icon">{suggestion.contactName ? <UserRound size={15} /> : <Building2 size={15} />}</span>
+                  <span className="company-lookup-result-copy">
+                    <strong>{suggestion.contactName || suggestion.companyName}</strong>
+                    <small>{suggestion.contactName ? suggestion.companyName : suggestion.customerType}{suggestion.phone ? ` · ${suggestion.phone}` : ''}</small>
+                    {(suggestion.taxId || suggestion.city || suggestion.manager) && <small>{[suggestion.taxId && `ІПН ${suggestion.taxId}`, suggestion.city, suggestion.manager && `Менеджер: ${suggestion.manager}`].filter(Boolean).join(' · ')}</small>}
+                  </span>
+                  <ChevronRight size={15} className="company-lookup-arrow" />
+                </button>
+              ))}
+            </div> : <div className="company-lookup-message">Збігів не знайдено. Заповніть дані клієнта вручну.</div>}
+      </div>}
+    </>}
+  </div>;
+}
+
+function GlobalOrderFields({ form, setValue, suggestions, loading, error, onSuggestionSelect, onSuggestionClear }: {
+  form: Record<string, string>;
+  setValue: (key: string, value: string) => void;
+  suggestions: OrderCustomerSuggestion[];
+  loading: boolean;
+  error: boolean;
+  onSuggestionSelect: (company: OrderCustomerSuggestion) => void;
+  onSuggestionClear: () => void;
+}) {
   return <>
+    <CompanyLookupField form={form} setValue={setValue} suggestions={suggestions} loading={loading} error={error} onSelect={onSuggestionSelect} onClear={onSuggestionClear} />
     <Field label="Дата замовлення"><input data-testid="input-global-order-date" type="date" value={form.orderDate || localDateInput()} onChange={(event) => setValue('orderDate', event.target.value)} required /></Field>
     <Field label="Відправник"><select data-testid="select-order-sender" value={form.sender || orderSenders[0]} onChange={(event) => setValue('sender', event.target.value)}>{orderSenders.map((item) => <option key={item}>{item}</option>)}</select></Field>
     <Field label="Склад відправлення"><select data-testid="select-order-warehouse" value={form.warehouse || orderWarehouses[0]} onChange={(event) => setValue('warehouse', event.target.value)}>{orderWarehouses.map((item) => <option key={item}>{item}</option>)}</select></Field>
@@ -1445,6 +1604,7 @@ function AuthGate() {
   const [loading, setLoading] = useState(() => Boolean(supabaseClient));
   const [authError, setAuthError] = useState('');
   const [accessError, setAccessError] = useState('');
+  const [accessChecking, setAccessChecking] = useState(false);
   const [role, setRole] = useState<CrmRole>('manager');
   const isAdmin = role === 'owner';
 
@@ -1458,6 +1618,7 @@ function AuthGate() {
     if (!client) {
       setAuthTokenGetter(null);
       setLoading(false);
+      setAccessChecking(false);
       return;
     }
     let mounted = true;
@@ -1471,17 +1632,21 @@ function AuthGate() {
       setSession(nextSession);
       setAuthError('');
       setAccessError('');
+      setAccessChecking(Boolean(nextSession));
       setLoading(false);
       if (!nextSession) queryClient.clear();
     });
     void client.auth.getSession().then(({ data, error }) => {
       if (!mounted) return;
       if (error) setAuthError('Не вдалося відновити сеанс. Спробуйте увійти ще раз.');
-      setSession(error ? null : data.session);
+      const nextSession = error ? null : data.session;
+      setSession(nextSession);
+      setAccessChecking(Boolean(nextSession));
       setLoading(false);
     }).catch(() => {
       if (!mounted) return;
       setAuthError('Не вдалося перевірити сеанс. Перевірте з’єднання та спробуйте ще раз.');
+      setAccessChecking(false);
       setLoading(false);
     });
     return () => {
@@ -1494,9 +1659,11 @@ function AuthGate() {
   useEffect(() => {
     if (!client || !session) {
       setRole('manager');
+      setAccessChecking(false);
       return;
     }
     let active = true;
+    setAccessChecking(true);
     void (async () => {
       try {
         const { data, error } = await client.auth.getSession();
@@ -1505,6 +1672,7 @@ function AuthGate() {
         if (!token) {
           setRole('manager');
           setAccessError('');
+          setAccessChecking(false);
           return;
         }
         const response = await fetch(`${apiBaseUrl}/api/auth/me`, {
@@ -1540,12 +1708,18 @@ function AuthGate() {
           setRole('manager');
           setAccessError('Не вдалося перевірити доступ до CRM. Оновіть сторінку або зверніться до адміністратора.');
         }
+      } finally {
+        if (active) setAccessChecking(false);
       }
     })();
     return () => { active = false; };
   }, [client, session?.access_token]);
 
-  if (!client || !session) {
+  if (!client) {
+    return <LoginPage client={client} errorMessage={authError} />;
+  }
+
+  if (!session) {
     if (loading) return <main className="auth-loading"><LoaderCircle size={24} /><span>Перевіряємо доступ…</span></main>;
     return <LoginPage client={client} errorMessage={authError} />;
   }
@@ -1554,6 +1728,7 @@ function AuthGate() {
     const { error } = await client.auth.signOut();
     if (error) throw error;
   };
+  if (loading || accessChecking) return <main className="auth-loading"><LoaderCircle size={24} /><span>Перевіряємо доступ…</span></main>;
   if (accessError) return <main className="auth-loading"><ShieldCheck size={24} /><span>{accessError}</span><button type="button" className="secondary-button" onClick={() => void signOut()}>Вийти з акаунта</button></main>;
   return <TooltipProvider><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}><Router userEmail={session.user.email ?? null} userId={session.user.id} role={role} isAdmin={isAdmin} onSignOut={signOut} /></WouterRouter><Toaster /></TooltipProvider>;
 }
