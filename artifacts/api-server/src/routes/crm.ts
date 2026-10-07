@@ -40,6 +40,7 @@ import {
   analyticsSettingsTable,
   companiesTable,
   contactsTable,
+  chatMessagesTable,
   crmUserAccessTable,
   db,
   ordersTable,
@@ -55,6 +56,8 @@ import {
 const router: IRouter = Router();
 const completedStage = "Успішно реалізовано";
 const autoPaidPaymentMethods = new Set(["промоплата", "лікпей", "ізіпей", "безготівкова"]);
+const chatRoles = ["owner", "director", "sales_manager", "manager"] as const;
+const onlineWindowMs = 90_000;
 
 function getCurrentManager(user?: { email?: string | null } | null): string {
   const email = user?.email?.trim();
@@ -564,6 +567,164 @@ router.get("/crm/managers", async (_req, res): Promise<void> => {
     .orderBy(crmUserAccessTable.email);
 
   res.json(managers.map(({ email }) => email));
+});
+
+router.get("/crm/chat/managers", async (req, res): Promise<void> => {
+  const actor = getAuthenticatedUser(res);
+  const managers = await db
+    .select({
+      userId: crmUserAccessTable.userId,
+      email: crmUserAccessTable.email,
+      role: crmUserAccessTable.role,
+      displayName: crmUserAccessTable.displayName,
+      lastSeenAt: crmUserAccessTable.lastSeenAt,
+    })
+    .from(crmUserAccessTable)
+    .where(and(
+      eq(crmUserAccessTable.isActive, true),
+      inArray(crmUserAccessTable.role, [...chatRoles]),
+    ))
+    .orderBy(crmUserAccessTable.email);
+
+  res.json(managers.map((manager) => ({
+    userId: manager.userId,
+    email: manager.email,
+    name: manager.displayName?.trim() || manager.email.split("@")[0] || manager.email,
+    role: manager.role,
+    isOnline: Boolean(manager.lastSeenAt && Date.now() - manager.lastSeenAt.getTime() <= onlineWindowMs),
+    lastSeenAt: iso(manager.lastSeenAt),
+    isSelf: manager.userId === actor.id,
+  })));
+});
+
+router.post("/crm/chat/presence", async (req, res): Promise<void> => {
+  const parsed = z.object({
+    displayName: z.string().trim().max(60).optional().nullable(),
+  }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json(errorBody(parsed.error.message));
+    return;
+  }
+
+  const actor = getAuthenticatedUser(res);
+  const [updated] = await db
+    .update(crmUserAccessTable)
+    .set({
+      displayName: parsed.data.displayName || null,
+      lastSeenAt: new Date(),
+    })
+    .where(and(
+      eq(crmUserAccessTable.userId, actor.id),
+      eq(crmUserAccessTable.isActive, true),
+    ))
+    .returning({ lastSeenAt: crmUserAccessTable.lastSeenAt });
+  if (!updated) {
+    res.status(403).json(errorBody("Активний доступ до CRM не знайдено."));
+    return;
+  }
+  res.json({ lastSeenAt: iso(updated.lastSeenAt) });
+});
+
+router.get("/crm/chat/messages/:userId", async (req, res): Promise<void> => {
+  const parsedUserId = z.string().trim().min(1).max(200).safeParse(req.params.userId);
+  if (!parsedUserId.success) {
+    res.status(400).json(errorBody("Некоректний користувач чату."));
+    return;
+  }
+
+  const actor = getAuthenticatedUser(res);
+  const recipientId = parsedUserId.data;
+  if (recipientId === actor.id) {
+    res.status(400).json(errorBody("Не можна відкрити чат із самим собою."));
+    return;
+  }
+  const [recipient] = await db
+    .select({ userId: crmUserAccessTable.userId })
+    .from(crmUserAccessTable)
+    .where(and(
+      eq(crmUserAccessTable.userId, recipientId),
+      eq(crmUserAccessTable.isActive, true),
+      inArray(crmUserAccessTable.role, [...chatRoles]),
+    ))
+    .limit(1);
+  if (!recipient) {
+    res.status(404).json(errorBody("Менеджера не знайдено або його доступ вимкнено."));
+    return;
+  }
+
+  const messages = await db
+    .select()
+    .from(chatMessagesTable)
+    .where(or(
+      and(
+        eq(chatMessagesTable.senderUserId, actor.id),
+        eq(chatMessagesTable.recipientUserId, recipientId),
+      ),
+      and(
+        eq(chatMessagesTable.senderUserId, recipientId),
+        eq(chatMessagesTable.recipientUserId, actor.id),
+      ),
+    ))
+    .orderBy(desc(chatMessagesTable.createdAt), desc(chatMessagesTable.id))
+    .limit(100);
+  res.json(messages.reverse().map((message) => ({
+    id: message.id,
+    senderUserId: message.senderUserId,
+    recipientUserId: message.recipientUserId,
+    body: message.body,
+    createdAt: message.createdAt.toISOString(),
+  })));
+});
+
+router.post("/crm/chat/messages/:userId", async (req, res): Promise<void> => {
+  const parsedUserId = z.string().trim().min(1).max(200).safeParse(req.params.userId);
+  const parsedBody = z.object({
+    body: z.string().trim().min(1).max(4000),
+  }).safeParse(req.body);
+  if (!parsedUserId.success) {
+    res.status(400).json(errorBody("Некоректний користувач чату."));
+    return;
+  }
+  if (!parsedBody.success) {
+    res.status(400).json(errorBody(parsedBody.error.message));
+    return;
+  }
+
+  const actor = getAuthenticatedUser(res);
+  const recipientId = parsedUserId.data;
+  if (recipientId === actor.id) {
+    res.status(400).json(errorBody("Не можна надіслати повідомлення самому собі."));
+    return;
+  }
+  const [recipient] = await db
+    .select({ userId: crmUserAccessTable.userId })
+    .from(crmUserAccessTable)
+    .where(and(
+      eq(crmUserAccessTable.userId, recipientId),
+      eq(crmUserAccessTable.isActive, true),
+      inArray(crmUserAccessTable.role, [...chatRoles]),
+    ))
+    .limit(1);
+  if (!recipient) {
+    res.status(404).json(errorBody("Менеджера не знайдено або його доступ вимкнено."));
+    return;
+  }
+
+  const [message] = await db
+    .insert(chatMessagesTable)
+    .values({
+      senderUserId: actor.id,
+      recipientUserId: recipientId,
+      body: parsedBody.data.body,
+    })
+    .returning();
+  res.status(201).json({
+    id: message.id,
+    senderUserId: message.senderUserId,
+    recipientUserId: message.recipientUserId,
+    body: message.body,
+    createdAt: message.createdAt.toISOString(),
+  });
 });
 
 router.get("/companies", async (req, res): Promise<void> => {

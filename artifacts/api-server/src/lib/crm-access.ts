@@ -41,6 +41,10 @@ export function isAllowedCrmRequest(
   const verb = method.toUpperCase();
   if (role === "owner" || role === "director") return true;
 
+  if (["sales_manager", "manager"].includes(role) && path.startsWith("/crm/chat/")) {
+    return ["GET", "POST"].includes(verb);
+  }
+
   if (role === "warehouse") {
     if (verb === "GET" && path === "/crm/orders") return true;
     if (verb === "GET" && [
@@ -85,9 +89,9 @@ export function canAccessPage(role: CrmRole, page: string): boolean {
     case "director":
       return page !== "admin";
     case "sales_manager":
-      return ["overview", "clients", "tasks", "orders", "analytics", "activity"].includes(page);
+      return ["overview", "clients", "tasks", "orders", "analytics", "activity", "chat"].includes(page);
     case "manager":
-      return ["clients", "tasks", "orders", "analytics", "activity"].includes(page);
+      return ["clients", "tasks", "orders", "analytics", "activity", "chat"].includes(page);
     case "warehouse":
       return ["orders", "warehouse"].includes(page);
     case "accountant":

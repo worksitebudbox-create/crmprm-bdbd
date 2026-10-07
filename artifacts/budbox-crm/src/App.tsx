@@ -97,6 +97,7 @@ function writeSavedDisplayName(value: string) {
   const next = value.trim();
   if (next) localStorage.setItem('budbox-crm-display-name', next);
   else localStorage.removeItem('budbox-crm-display-name');
+  window.dispatchEvent(new Event('crm-display-name-changed'));
 }
 
 function getPrimaryDisplayName(userEmail?: string | null, fallback = 'Робочий акаунт') {
@@ -208,6 +209,22 @@ type OrderCustomerSuggestion = {
   contactId: number | null;
   contactName: string | null;
   phone: string | null;
+};
+type ChatManager = {
+  userId: string;
+  email: string;
+  name: string;
+  role: string;
+  isOnline: boolean;
+  lastSeenAt: string | null;
+  isSelf: boolean;
+};
+type InternalChatMessage = {
+  id: number;
+  senderUserId: string;
+  recipientUserId: string;
+  body: string;
+  createdAt: string;
 };
 
 function Field({ label, children, wide = false }: { label: string; children: ReactNode; wide?: boolean }) {
@@ -464,13 +481,14 @@ const navigation = [
   { path: '/overview', label: 'Огляд', icon: LayoutDashboard, id: 'nav-overview' },
   { path: '/', label: 'Клієнти', icon: UsersRound, id: 'nav-clients' },
   { path: '/tasks', label: 'Завдання', icon: ClipboardList, id: 'nav-tasks' },
+  { path: '/chat', label: 'Менеджери онлайн', icon: MessageCircle, id: 'nav-chat' },
   { path: '/orders', label: 'Замовлення', icon: Package, id: 'nav-orders' },
   { path: '/analytics', label: 'Аналітика', icon: BarChart3, id: 'nav-analytics' },
   { path: '/warehouse', label: 'Склад', icon: Package, id: 'nav-warehouse' },
   { path: '/activity', label: 'Активність', icon: Activity, id: 'nav-activity' },
 ];
 function NavItems({ current, role, isAdmin, navigate }: { current: string; role: CrmRole; isAdmin: boolean; navigate?: (path: string) => void }) {
-  const pageForPath: Record<string, string> = { '/': 'clients', '/overview': 'overview', '/tasks': 'tasks', '/orders': 'orders', '/analytics': 'analytics', '/warehouse': 'warehouse', '/activity': 'activity' };
+  const pageForPath: Record<string, string> = { '/': 'clients', '/overview': 'overview', '/tasks': 'tasks', '/chat': 'chat', '/orders': 'orders', '/analytics': 'analytics', '/warehouse': 'warehouse', '/activity': 'activity' };
   const items = [
     ...navigation.filter(({ path }) => roleCanAccessPage(role, pageForPath[path] ?? '')),
     ...(isAdmin ? [{ path: '/admin', label: 'Адмінка', icon: ShieldCheck, id: 'nav-admin' }] : []),
@@ -738,7 +756,7 @@ function AnalyticsPage({ orders }: { orders: OrderBoardItem[] }) {
   </section>;
 }
 
-function GlobalPage({ page, userEmail, userId, role, isAdmin, onSignOut }: { page: 'overview' | 'tasks' | 'orders' | 'warehouse' | 'activity' | 'analytics' | 'admin'; userEmail: string | null; userId: string; role: CrmRole; isAdmin: boolean; onSignOut: () => Promise<void> }) {
+function GlobalPage({ page, userEmail, userId, role, isAdmin, onSignOut, presenceError = '' }: { page: 'overview' | 'tasks' | 'orders' | 'warehouse' | 'activity' | 'analytics' | 'admin' | 'chat'; userEmail: string | null; userId: string; role: CrmRole; isAdmin: boolean; onSignOut: () => Promise<void>; presenceError?: string }) {
   const qc = useQueryClient();
   const [, navigate] = useLocation();
   const [railOpen, setRailOpen] = useState(true);
@@ -869,7 +887,7 @@ function GlobalPage({ page, userEmail, userId, role, isAdmin, onSignOut }: { pag
     if (paidDate) totals[paidDate] = (totals[paidDate] ?? 0) + order.amountUah;
     return totals;
   }, {});
-  const titleMap = { overview: 'Огляд продажів', tasks: 'Завдання', orders: 'Замовлення', analytics: 'Аналітика', warehouse: 'Склад', activity: 'Активність', admin: 'Адмін-панель' };
+  const titleMap = { overview: 'Огляд продажів', tasks: 'Завдання', orders: 'Замовлення', analytics: 'Аналітика', warehouse: 'Склад', activity: 'Активність', admin: 'Адмін-панель', chat: 'Менеджери онлайн' };
   const refresh = async (companyId?: number) => Promise.all([
     qc.invalidateQueries({ queryKey: getGetCrmSummaryQueryKey() }),
     qc.invalidateQueries({ queryKey: getGetCrmTasksQueryKey() }),
@@ -972,6 +990,7 @@ function GlobalPage({ page, userEmail, userId, role, isAdmin, onSignOut }: { pag
     </header>
     <div className={`workspace ${railOpen ? '' : 'rail-collapsed'}`}><aside className={`rail ${drawerOpen ? 'drawer-open' : ''}`}><NavItems current={page === 'overview' ? '/overview' : `/${page}`} role={role} isAdmin={isAdmin} navigate={() => setDrawerOpen(false)} /></aside>{drawerOpen && <button className="drawer-scrim" aria-label="Закрити меню" onClick={() => setDrawerOpen(false)} />}
         <main className="main global-main"><div className="page-heading"><div><div className="eyebrow"><span /> РОБОЧИЙ ПРОСТІР ПРОДАЖІВ</div><h1 data-testid="text-page-title">{pageTitle}</h1></div>{page === 'tasks' && roleCanManageCrmData(role) ? <button data-testid="button-new-task" className="primary-button" onClick={() => openForm('task')}><Plus size={15} /> Нове завдання</button> : page === 'orders' && roleCanManageCrmData(role) ? <button data-testid="button-new-order" className="primary-button" onClick={() => openForm('order')}><Plus size={15} /> Нове замовлення</button> : page === 'activity' && roleCanManageCrmData(role) ? <button data-testid="button-new-activity" className="primary-button" onClick={() => openForm('note')}><Plus size={15} /> Додати запис</button> : null}</div>
+        {!loadingForPage && !errorForPage && page === 'chat' && <ChatPage currentUserId={userId} presenceError={presenceError} />}
         {loadingForPage ? <div className="global-loading" data-testid="state-loading">{page === 'orders' ? <div className="orders-loading-grid">{[1, 2, 3, 4, 5, 6].map((n) => <div className="order-card-skeleton" key={n}><Skeleton /><Skeleton /><Skeleton /><Skeleton /></div>)}</div> : [1, 2, 3].map((n) => <div className="global-skeleton" key={n}><Skeleton /><Skeleton /><Skeleton /></div>)}</div> : errorForPage ? <div className="empty-state large" data-testid="state-error"><CircleAlert size={26} /><b>Дані тимчасово недоступні</b><span>Перевірте з’єднання та спробуйте ще раз.</span><button data-testid="button-retry-page" onClick={() => { void summary.refetch(); void tasks.refetch(); void orders.refetch(); void activity.refetch(); }}>Повторити</button></div> : null}
         {!loadingForPage && !errorForPage && page === 'overview' && <><div className="summary-strip">{[['КОМПАНІЇ', summary.data?.totalCompanies ?? 0], ['АКТИВНІ ЗАМОВЛЕННЯ', summary.data?.activeOrders ?? 0], ['ВОРОНКА', money(summary.data?.pipelineValueUah ?? 0)], ['ПРОСТРОЧЕНІ ЗАВДАННЯ', summary.data?.overdueTasks ?? 0]].map(([label, value]) => <div key={String(label)}><span>{label}</span><b data-testid={`overview-metric-${String(label).toLowerCase().replaceAll(' ', '-')}`}>{value}</b></div>)}</div><div className="global-grid"><section className="data-card"><SectionHeader icon={ClipboardList} title="Найближчі завдання" subtitle="Незавершені нагадування команди" action={<Link className="text-button" href="/tasks">Усі завдання</Link>} />{taskRows.filter((task) => !task.isCompleted).slice(0, 6).map((task) => <TaskLine task={task} toggle={toggleTask} key={task.id} />)}{!taskRows.filter((task) => !task.isCompleted).length && <EmptyPanel label="Незавершених завдань поки немає." />}</section><section className="data-card"><SectionHeader icon={History} title="Останні записи" subtitle="Нещодавні дії у клієнтських картках" action={<Link className="text-button" href="/activity">Уся активність</Link>} />{activityRows.slice(0, 6).map((item) => <ActivityBoardLine item={item} key={item.id} onCompany={(companyId) => { localStorage.setItem('budbox-selected-company', String(companyId)); navigate('/'); }} />)}{!activityRows.length && <EmptyPanel label="Активність з’явиться після записів у CRM." />}</section></div></>}
         {!loadingForPage && !errorForPage && page === 'tasks' && <section className="data-card global-table"><div className="table-head"><span>ЗАВДАННЯ / КОМПАНІЯ</span><span>ВІДПОВІДАЛЬНА</span><span>ТЕРМІН</span><span>СТАН</span></div>{taskRows.map((task) => <TaskLine task={task} toggle={toggleTask} key={task.id} />)}{!taskRows.length && <EmptyPanel label="Завдань ще немає. Створіть завдання та оберіть компанію." action={<button className="secondary-button" onClick={() => openForm('task')}>Створити завдання</button>} />}</section>}
@@ -1588,6 +1607,98 @@ function GlobalOrderFields({ form, setValue, suggestions, loading, error, onSugg
 }
 function OrderForm({ form, setValue, onSubmit, busy }: { form: Record<string, string>; setValue: (key: string, value: string) => void; onSubmit: () => void; busy: boolean }) { return <form className="form-grid" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}><OrderFields form={form} setValue={setValue} /><Submit busy={busy} label="Створити замовлення" /></form>; }
 function TaskForm({ form, setValue, onSubmit, busy }: { form: Record<string, string>; setValue: (key: string, value: string) => void; onSubmit: () => void; busy: boolean }) { return <form className="form-grid" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}><Field label="Що потрібно зробити?" wide><div className="callback-task-input"><input autoFocus data-testid="input-task-title" value={form.title || ''} onChange={(event) => setValue('title', event.target.value)} required placeholder="Зателефонувати щодо оплати" /><button type="button" className="secondary-button" data-testid="button-callback-task" onClick={() => setValue('title', 'Передзвонити клієнту')}><Phone size={13} /> Передзвонити</button></div></Field><Field label="Термін"><input type="datetime-local" value={form.dueAt || ''} onChange={(event) => setValue('dueAt', event.target.value)} /></Field><ManagerSelect value={form.assignee || ''} onChange={(value) => setValue('assignee', value)} /><Submit busy={busy} label="Створити завдання" /></form>; }
+function ChatPage({ currentUserId, presenceError }: { currentUserId: string; presenceError: string }) {
+  const qc = useQueryClient();
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [draft, setDraft] = useState('');
+  const [sendError, setSendError] = useState('');
+  const [sending, setSending] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const managersQuery = useQuery({
+    queryKey: ['crm-chat-managers'],
+    queryFn: () => customFetch<ChatManager[]>('/api/crm/chat/managers'),
+    refetchInterval: 15_000,
+    staleTime: 5_000,
+  });
+  const managers = (managersQuery.data ?? []).filter((manager) => !manager.isSelf);
+  const selectedManager = managers.find((manager) => manager.userId === selectedUserId);
+  const messagesQuery = useQuery({
+    queryKey: ['crm-chat-messages', currentUserId, selectedUserId],
+    queryFn: () => customFetch<InternalChatMessage[]>(`/api/crm/chat/messages/${encodeURIComponent(selectedUserId)}`),
+    enabled: Boolean(selectedManager),
+    refetchInterval: 4_000,
+    staleTime: 1_000,
+  });
+  const messages = messagesQuery.data ?? [];
+  const latestMessageId = messages[messages.length - 1]?.id;
+  useEffect(() => {
+    if (selectedUserId && !managers.some((manager) => manager.userId === selectedUserId)) setSelectedUserId('');
+  }, [managers, selectedUserId]);
+  useEffect(() => {
+    if (latestMessageId === undefined) return;
+    messagesEndRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+  }, [latestMessageId, selectedUserId]);
+
+  const sendMessage = async (event: FormEvent) => {
+    event.preventDefault();
+    const body = draft.trim();
+    if (!body || !selectedManager || sending) return;
+    setSending(true);
+    setSendError('');
+    try {
+      await customFetch<InternalChatMessage>(`/api/crm/chat/messages/${encodeURIComponent(selectedManager.userId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body }),
+      });
+      setDraft('');
+      await qc.invalidateQueries({ queryKey: ['crm-chat-messages', currentUserId, selectedManager.userId] });
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : 'Не вдалося надіслати повідомлення.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const renderManager = (manager: ChatManager) => <button
+    type="button"
+    className={`chat-manager ${selectedUserId === manager.userId ? 'selected' : ''}`}
+    key={manager.userId}
+    onClick={() => { setSelectedUserId(manager.userId); setDraft(''); setSendError(''); }}
+    data-testid={`chat-manager-${manager.userId}`}
+  >
+    <span className="chat-avatar">{initials(manager.name)}<i className={manager.isOnline ? 'online' : ''} /></span>
+    <span className="chat-manager-info"><b>{manager.name}</b><small>{manager.isOnline ? 'Онлайн' : manager.lastSeenAt ? `Був(ла) ${new Intl.DateTimeFormat('uk-UA', { hour: '2-digit', minute: '2-digit' }).format(new Date(manager.lastSeenAt))}` : 'Ще не заходив(ла)'}</small></span>
+    <MessageCircle size={15} />
+  </button>;
+  return <section className="chat-page">
+    <aside className="chat-people data-card">
+      <div className="chat-people-heading"><div><h2>Менеджери</h2><p>Натисніть, щоб відкрити приватний чат</p></div><button className="icon-button" type="button" aria-label="Оновити список" onClick={() => void managersQuery.refetch()}><RefreshCw size={15} /></button></div>
+      {managersQuery.isLoading ? <p className="chat-state">Завантаження менеджерів…</p> : managersQuery.isError ? <div className="chat-error" role="alert">Не вдалося завантажити список менеджерів. <button type="button" onClick={() => void managersQuery.refetch()}>Повторити</button></div> : <>
+        <div className="chat-presence-group"><h3><i /> Онлайн <span>{managers.filter((manager) => manager.isOnline).length}</span></h3>{managers.filter((manager) => manager.isOnline).map(renderManager)}</div>
+        <div className="chat-presence-group"><h3>Офлайн <span>{managers.filter((manager) => !manager.isOnline).length}</span></h3>{managers.filter((manager) => !manager.isOnline).map(renderManager)}</div>
+        {!managers.length && <p className="chat-state">Поки немає інших активних менеджерів.</p>}
+      </>}
+    </aside>
+    <section className="chat-conversation data-card">
+      {presenceError && <div className="chat-warning" role="status">{presenceError}</div>}
+      {!selectedManager ? <div className="chat-empty"><MessageCircle size={28} /><b>Внутрішній чат</b><span>Оберіть менеджера зі списку, щоб почати переписку.</span></div> : <>
+        <header className="chat-conversation-heading"><span className="chat-avatar">{initials(selectedManager.name)}<i className={selectedManager.isOnline ? 'online' : ''} /></span><div><b>{selectedManager.name}</b><small>{selectedManager.isOnline ? 'Онлайн зараз' : 'Офлайн'}</small></div></header>
+        <div className="chat-messages" data-testid="chat-messages">
+          {messagesQuery.isLoading ? <p className="chat-state">Завантаження повідомлень…</p> : messagesQuery.isError ? <div className="chat-error" role="alert">Не вдалося завантажити переписку. <button type="button" onClick={() => void messagesQuery.refetch()}>Повторити</button></div> : messages.length ? messages.map((message) => <article className={`chat-message ${message.senderUserId === currentUserId ? 'mine' : ''}`} key={message.id}><p>{message.body}</p><time>{new Intl.DateTimeFormat('uk-UA', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' }).format(new Date(message.createdAt))}</time></article>) : <div className="chat-empty-inline">Повідомлень ще немає. Напишіть першим.</div>}
+          <div ref={messagesEndRef} />
+        </div>
+        <form className="chat-compose" onSubmit={sendMessage}>
+          {sendError && <div className="chat-error" role="alert">{sendError}</div>}
+          <div><textarea data-testid="input-chat-message" value={draft} maxLength={4000} rows={2} placeholder="Напишіть повідомлення…" onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
+            <button type="submit" className="primary-button" data-testid="button-send-chat-message" disabled={sending || !draft.trim()} aria-label="Надіслати повідомлення">{sending ? <LoaderCircle className="spin" size={17} /> : <Send size={16} />}<span>Надіслати</span></button></div>
+          <small>Enter — надіслати · Shift+Enter — новий рядок</small>
+        </form>
+      </>}
+    </section>
+  </section>;
+}
+
 function ManagerSelect({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const managersQuery = useQuery({
     queryKey: ['crm-managers'],
@@ -1614,7 +1725,7 @@ function DisplayNameEditor({ initialName, onSave }: { initialName: string; onSav
     <label htmlFor="crm-display-name">Ім’я в CRM</label>
     <div><input id="crm-display-name" data-testid="input-crm-display-name" value={value} maxLength={60} placeholder="Як до вас звертатися" onChange={(event) => setValue(event.target.value)} />
       <button type="button" className="secondary-button" data-testid="button-save-display-name" onClick={() => onSave(value)}>Зберегти</button></div>
-    <small>Ім’я зберігається у цьому браузері.</small>
+    <small>Ім’я також показується іншим менеджерам у списку чату.</small>
   </div>;
 }
 function NoteForm({ form, setValue, onSubmit, busy }: { form: Record<string, string>; setValue: (key: string, value: string) => void; onSubmit: () => void; busy: boolean }) { return <form className="form-grid" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}><Field label="Заголовок нотатки" wide><input autoFocus data-testid="input-note-title" value={form.title || ''} onChange={(event) => setValue('title', event.target.value)} required placeholder="Підсумок дзвінка" /></Field><Field label="Деталі" wide><textarea data-testid="input-note-details" rows={4} value={form.details || ''} onChange={(event) => setValue('details', event.target.value)} placeholder="Зафіксуйте домовленість або наступний крок" /></Field><Submit busy={busy} label="Зберегти нотатку" /></form>; }
@@ -1625,17 +1736,51 @@ function roleCanAccessPage(role: CrmRole, page: string): boolean {
   switch (role) {
     case 'owner': return true;
     case 'director': return page !== 'admin';
-    case 'sales_manager': return ['overview', 'clients', 'tasks', 'orders', 'analytics', 'activity'].includes(page);
-    case 'manager': return ['clients', 'tasks', 'orders', 'analytics', 'activity'].includes(page);
+    case 'sales_manager': return ['overview', 'clients', 'tasks', 'orders', 'analytics', 'activity', 'chat'].includes(page);
+    case 'manager': return ['clients', 'tasks', 'orders', 'analytics', 'activity', 'chat'].includes(page);
     case 'warehouse': return ['orders', 'warehouse'].includes(page);
     case 'accountant': return ['orders', 'analytics'].includes(page);
     case 'auditor': return ['activity'].includes(page);
   }
 }
 function Router({ userEmail, userId, role, isAdmin, onSignOut }: { userEmail: string | null; userId: string; role: CrmRole; isAdmin: boolean; onSignOut: () => Promise<void> }) {
-  const globalPage = (page: 'overview' | 'tasks' | 'orders' | 'warehouse' | 'activity' | 'analytics' | 'admin') =>
+  const [presenceError, setPresenceError] = useState('');
+  useEffect(() => {
+    if (!roleCanAccessPage(role, 'chat')) return;
+    let cancelled = false;
+    const updatePresence = async () => {
+      try {
+        await customFetch<{ lastSeenAt: string }>('/api/crm/chat/presence', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ displayName: readSavedDisplayName() || null }),
+        });
+        if (!cancelled) setPresenceError('');
+      } catch (error) {
+        if (!cancelled) {
+          console.error('CRM presence heartbeat failed', error);
+          setPresenceError('Не вдалося оновити ваш статус онлайн. Перевірте з’єднання.');
+        }
+      }
+    };
+    void updatePresence();
+    const interval = window.setInterval(() => void updatePresence(), 30_000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void updatePresence();
+    };
+    const onDisplayNameChange = () => void updatePresence();
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('crm-display-name-changed', onDisplayNameChange);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('crm-display-name-changed', onDisplayNameChange);
+    };
+  }, [role, userId]);
+  const globalPage = (page: 'overview' | 'tasks' | 'orders' | 'warehouse' | 'activity' | 'analytics' | 'admin' | 'chat') =>
     roleCanAccessPage(role, page === 'admin' ? 'admin' : page) || (page === 'admin' && isAdmin)
-      ? <GlobalPage page={page} userEmail={userEmail} userId={userId} role={role} isAdmin={isAdmin} onSignOut={onSignOut} />
+      ? <GlobalPage page={page} userEmail={userEmail} userId={userId} role={role} isAdmin={isAdmin} onSignOut={onSignOut} presenceError={presenceError} />
       : <NotFound />;
   return <RoutedErrorBoundary><Switch>
     <Route path="/">{roleCanAccessPage(role, 'clients') ? <CrmWorkspace userEmail={userEmail} role={role} isAdmin={isAdmin} onSignOut={onSignOut} /> : <NotFound />}</Route>
@@ -1645,6 +1790,7 @@ function Router({ userEmail, userId, role, isAdmin, onSignOut }: { userEmail: st
     <Route path="/analytics">{globalPage('analytics')}</Route>
     <Route path="/warehouse">{globalPage('warehouse')}</Route>
     <Route path="/activity">{globalPage('activity')}</Route>
+    <Route path="/chat">{globalPage('chat')}</Route>
     <Route path="/admin">{globalPage('admin')}</Route>
     <Route component={NotFound} />
   </Switch></RoutedErrorBoundary>;

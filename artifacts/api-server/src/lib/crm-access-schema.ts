@@ -29,6 +29,28 @@ export async function ensureCrmAccessSchema(): Promise<void> {
     )
   `);
   await pool.query(`
+    ALTER TABLE crm_user_accesses
+      ADD COLUMN IF NOT EXISTS display_name TEXT,
+      ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS crm_chat_messages (
+      id SERIAL PRIMARY KEY,
+      sender_user_id TEXT NOT NULL,
+      recipient_user_id TEXT NOT NULL,
+      body TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS crm_chat_messages_conversation_idx
+      ON crm_chat_messages (sender_user_id, recipient_user_id, created_at)
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS crm_chat_messages_recipient_idx
+      ON crm_chat_messages (recipient_user_id, created_at)
+  `);
+  await pool.query(`
     CREATE INDEX IF NOT EXISTS crm_admin_audit_logs_created_at_idx
       ON crm_admin_audit_logs (created_at)
   `);

@@ -8,6 +8,8 @@ export const crmUserAccessTable = pgTable(
     email: text("email").notNull(),
     role: text("role").notNull().default("manager"),
     team: text("team"),
+    displayName: text("display_name"),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
     isActive: boolean("is_active").notNull().default(true),
     createdBy: text("created_by"),
     updatedBy: text("updated_by"),

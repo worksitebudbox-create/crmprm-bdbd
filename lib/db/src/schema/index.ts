@@ -21,6 +21,7 @@ export * from "./activities";
 export * from "./adminAuditLogs";
 export * from "./analyticsSettings";
 export * from "./companies";
+export * from "./chatMessages";
 export * from "./contacts";
 export * from "./crmUserAccess";
 export * from "./orders";
