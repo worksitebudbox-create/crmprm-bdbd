@@ -31,7 +31,8 @@ export async function ensureCrmAccessSchema(): Promise<void> {
   await pool.query(`
     ALTER TABLE crm_user_accesses
       ADD COLUMN IF NOT EXISTS display_name TEXT,
-      ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ
+      ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ
   `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS crm_chat_messages (

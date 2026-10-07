@@ -44,6 +44,9 @@ export function isAllowedCrmRequest(
   if (["sales_manager", "manager"].includes(role) && path.startsWith("/crm/chat/")) {
     return ["GET", "POST", "PATCH", "DELETE"].includes(verb);
   }
+  if (["sales_manager", "manager"].includes(role) && verb === "DELETE") {
+    return /^\/companies\/\d+$/.test(path) || /^\/tasks\/\d+$/.test(path);
+  }
 
   if (role === "warehouse") {
     if (verb === "GET" && path === "/crm/orders") return true;

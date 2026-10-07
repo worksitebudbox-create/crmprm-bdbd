@@ -1038,6 +1038,52 @@ router.post("/companies", async (req, res): Promise<void> => {
   res.status(201).json(CreateCompanyResponse.parse(detail));
 });
 
+router.delete("/companies/:companyId", async (req, res): Promise<void> => {
+  const params = GetCompanyParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json(errorBody(params.error.message));
+    return;
+  }
+  const actor = getAuthenticatedUser(res);
+  const managerScope = await getManagerScope(actor);
+  const deleted = await db.transaction(async (tx) => {
+    const [company] = await tx
+      .select({ id: companiesTable.id, name: companiesTable.name })
+      .from(companiesTable)
+      .where(and(
+        eq(companiesTable.id, params.data.companyId),
+        managerScopeCondition(managerScope),
+      ))
+      .limit(1);
+    if (!company) return null;
+
+    await tx.delete(ordersTable).where(eq(ordersTable.companyId, company.id));
+    await tx.delete(companyContactLinksTable).where(eq(companyContactLinksTable.companyId, company.id));
+    await tx.delete(contactsTable).where(eq(contactsTable.companyId, company.id));
+    await tx.delete(tasksTable).where(eq(tasksTable.companyId, company.id));
+    await tx.delete(activitiesTable).where(eq(activitiesTable.companyId, company.id));
+    const [removed] = await tx
+      .delete(companiesTable)
+      .where(eq(companiesTable.id, company.id))
+      .returning({ id: companiesTable.id, name: companiesTable.name });
+    if (!removed) return null;
+    await tx.insert(adminAuditLogsTable).values({
+      actorUserId: actor.id,
+      actorEmail: actor.email,
+      action: "delete_company",
+      entityType: "company",
+      entityId: removed.id,
+      summary: `Видалено клієнта/компанію ${removed.name} разом із пов’язаними даними`,
+    });
+    return removed;
+  });
+  if (!deleted) {
+    res.status(404).json(errorBody("Клієнта або компанію не знайдено."));
+    return;
+  }
+  res.status(204).end();
+});
+
 router.get("/crm/contact-search", async (req, res): Promise<void> => {
   const parsedQuery = z.string().trim().min(2).max(120).safeParse(req.query.q);
   if (!parsedQuery.success) {
@@ -1508,6 +1554,48 @@ router.patch("/tasks/:taskId", async (req, res): Promise<void> => {
     createdBy: getCurrentManager(res.locals.authUser as { email?: string | null } | undefined),
   });
   res.json(UpdateTaskResponse.parse(toTask(task)));
+});
+
+router.delete("/tasks/:taskId", async (req, res): Promise<void> => {
+  const params = UpdateTaskParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json(errorBody(params.error.message));
+    return;
+  }
+  const actor = getAuthenticatedUser(res);
+  const managerScope = await getManagerScope(actor);
+  const deleted = await db.transaction(async (tx) => {
+    const [task] = await tx
+      .select({ id: tasksTable.id, companyId: tasksTable.companyId, title: tasksTable.title })
+      .from(tasksTable)
+      .innerJoin(companiesTable, eq(tasksTable.companyId, companiesTable.id))
+      .where(and(
+        eq(tasksTable.id, params.data.taskId),
+        managerScopeCondition(managerScope),
+      ))
+      .limit(1);
+    if (!task) return null;
+
+    const [removed] = await tx
+      .delete(tasksTable)
+      .where(eq(tasksTable.id, task.id))
+      .returning({ id: tasksTable.id });
+    if (!removed) return null;
+    await tx.insert(adminAuditLogsTable).values({
+      actorUserId: actor.id,
+      actorEmail: actor.email,
+      action: "delete_task",
+      entityType: "task",
+      entityId: removed.id,
+      summary: `Видалено завдання «${task.title}»`,
+    });
+    return removed;
+  });
+  if (!deleted) {
+    res.status(404).json(errorBody("Завдання не знайдено."));
+    return;
+  }
+  res.status(204).end();
 });
 
 router.post("/companies/:companyId/notes", async (req, res): Promise<void> => {

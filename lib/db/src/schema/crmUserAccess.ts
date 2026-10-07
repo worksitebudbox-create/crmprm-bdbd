@@ -11,6 +11,7 @@ export const crmUserAccessTable = pgTable(
     displayName: text("display_name"),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
     isActive: boolean("is_active").notNull().default(true),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
     createdBy: text("created_by"),
     updatedBy: text("updated_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

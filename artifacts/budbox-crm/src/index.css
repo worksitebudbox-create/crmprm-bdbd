@@ -1016,9 +1016,11 @@
     color: inherit;
     background: #fff;
     text-align: left;
+    cursor: pointer;
     transition: background .14s ease, border-color .14s ease;
   }
 
+  .company-row:focus-visible { outline: 2px solid #4f83d8; outline-offset: -2px; }
   .company-row:hover {
     background: #f8faff;
   }
@@ -1115,6 +1117,8 @@
     color: #c24c43;
     font-weight: 700;
   }
+  .company-row-delete { display: inline-flex; width: 26px; height: 24px; flex: 0 0 auto; align-items: center; justify-content: center; border: 1px solid #f0d8d6; border-radius: 6px; color: #ad514b; background: #fff7f6; }
+  .company-row-delete:hover { border-color: #e4bbb8; background: #fff0ee; }
 
   .badge {
     display: inline-flex;
@@ -2740,7 +2744,10 @@
   .table-head { display: none; }
   .global-row, .order-global-row { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 12px; }
   .global-secondary { grid-column: 1; padding-left: 39px; }
-  .task-global-row > .badge { grid-column: 2; grid-row: 2; }
+  .task-global-row > .task-status-actions { grid-column: 2; grid-row: 2; }
+  .task-status-actions { gap: 2px; }
+  .task-status-actions .badge { max-width: 78px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .task-status-actions .icon-button { width: 26px; height: 26px; }
   .order-global-row > select { grid-column: 1; }
   .order-global-row > .global-amount { grid-column: 2; grid-row: 2; text-align: right; }
   .delivery-edit { grid-column: 1 / -1; padding-left: 39px; }
@@ -3206,8 +3213,8 @@
 .admin-user-list, .admin-audit-list { overflow-x: auto; }
 .admin-user-head, .admin-user-row {
   display: grid;
-  min-width: 760px;
-  grid-template-columns: minmax(190px, 1.25fr) minmax(190px, 1.1fr) minmax(130px, .8fr) 130px;
+  min-width: 860px;
+  grid-template-columns: minmax(190px, 1.25fr) minmax(170px, 1fr) minmax(130px, .8fr) 130px 100px;
   align-items: center;
   gap: 12px;
   padding: 12px 14px;
@@ -3243,6 +3250,21 @@
 }
 .admin-access-toggle.active { border-color: #cdebdc; color: #26774f; background: #f2fbf6; }
 .admin-access-toggle:disabled { cursor: not-allowed; opacity: .55; }
+.admin-user-delete { display: inline-flex; min-height: 34px; align-items: center; justify-content: center; gap: 5px; padding: 0 8px; border: 1px solid #f0d8d6; border-radius: 8px; color: #a13d3d; background: #fff7f6; font: inherit; font-size: 10px; font-weight: 700; cursor: pointer; }
+.admin-user-delete:hover:not(:disabled) { border-color: #e6b8b4; background: #fff0ee; }
+.admin-user-delete:disabled { cursor: wait; opacity: .55; }
+.admin-user-row.deleted { background: #fafbfc; }
+.task-status-actions { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 5px; }
+.task-status-actions .icon-button { width: 28px; height: 28px; flex: 0 0 auto; }
+.task-status-actions .task-delete-button { color: #aa4a46; }
+.completed-orders-history { margin-top: 16px; border: 1px solid #e3e9f1; border-radius: 12px; background: #fff; }
+.completed-orders-history > summary { display: flex; min-height: 48px; align-items: center; gap: 9px; padding: 0 14px; color: #586b85; font-size: 11px; font-weight: 700; cursor: pointer; list-style: none; }
+.completed-orders-history > summary::-webkit-details-marker { display: none; }
+.completed-orders-history > summary::before { width: 0; height: 0; border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 5px solid #8c9bb0; content: ''; transition: transform .15s ease; }
+.completed-orders-history[open] > summary::before { transform: rotate(90deg); }
+.completed-orders-history > summary svg { color: #8a98aa; }
+.completed-orders-history > summary b { display: grid; min-width: 22px; height: 22px; margin-left: auto; place-items: center; border-radius: 7px; color: #687b97; background: #f0f3f8; font-size: 9px; }
+.completed-orders-history .orders-card-grid { padding: 0 12px 12px; }
 .admin-audit-row {
   display: flex;
   min-width: 560px;

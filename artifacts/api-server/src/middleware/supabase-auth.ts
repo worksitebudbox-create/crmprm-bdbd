@@ -79,6 +79,10 @@ export async function requireAuthentication(
       .onConflictDoNothing()
       .returning();
   }
+  if (access?.deletedAt && !isAdmin) {
+    res.status(403).json({ error: "CRM access for this account has been removed. Contact the administrator." });
+    return;
+  }
   if (!access) {
     const matchingAccess = await db
       .select()
