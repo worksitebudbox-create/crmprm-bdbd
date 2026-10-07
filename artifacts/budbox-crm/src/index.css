@@ -3105,6 +3105,10 @@
 .order-detail-summary > span { display: grid; gap: 4px; }
 .order-detail-summary small { color: #8995a7; font-size: 8px; }
 .order-detail-summary b { color: #2d405c; font-size: 12px; }
+.order-detail-customer-link { display: inline-flex; width: fit-content; max-width: 100%; align-items: center; gap: 5px; padding: 0; border: 0; color: #2d405c; background: transparent; font: inherit; font-size: 12px; font-weight: 700; text-align: left; cursor: pointer; }
+.order-detail-customer-link svg { flex: 0 0 auto; color: #6f89b2; transition: transform .15s ease, color .15s ease; }
+.order-detail-customer-link:hover { color: #1559d6; text-decoration: underline; text-underline-offset: 2px; }
+.order-detail-customer-link:hover svg { color: #1559d6; transform: translateX(2px); }
 .order-detail-summary span span { color: #7f8da2; font-size: 9px; }
 .order-detail-summary > strong { color: #176a49; font-size: 20px; white-space: nowrap; }
 .order-detail-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
